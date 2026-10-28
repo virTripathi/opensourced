@@ -1,0 +1,36 @@
+{
+  "name": "@worksmarter/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@nestjs/common": "^10.4.5",
+    "@nestjs/config": "^3.2.3",
+    "@nestjs/core": "^10.4.5",
+    "@nestjs/platform-express": "^10.4.5",
+    "@octokit/rest": "^21.0.2",
+    "@worksmarter/common": "*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "simple-git": "^3.27.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.5",
+    "@nestjs/schematics": "^10.1.4",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}
