@@ -1,0 +1,235 @@
+import React from 'react';
+import {
+  FolderGit2,
+  FolderOpen,
+  Search,
+  ShieldCheck,
+  FileCode2,
+  CloudUpload,
+  ExternalLink,
+  ChevronRight,
+  CheckCircle2,
+  Loader2,
+} from 'lucide-react';
+
+interface ActionCardsProps {
+  activeAction: string | null;
+  clonePath: string;
+  cloneProgress: number | null;
+  cloneStatus: string;
+  vsCodeUri: string | null;
+  clonedTargetPath: string | null;
+  onOpenFolderPicker: () => void;
+  onExecuteClone: () => void;
+  onTriggerAction: (actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr') => void;
+  onSaveToDrive: () => void;
+}
+
+export const ActionCards: React.FC<ActionCardsProps> = ({
+  activeAction,
+  clonePath,
+  cloneProgress,
+  cloneStatus,
+  vsCodeUri,
+  clonedTargetPath,
+  onOpenFolderPicker,
+  onExecuteClone,
+  onTriggerAction,
+  onSaveToDrive,
+}) => {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#787774] dark:text-[#9b9a97]">
+          Context Actions
+        </h3>
+        <span className="text-[10px] text-[#9b9a97]">Deterministic 1-Click</span>
+      </div>
+
+      {/* Action 1: Clone Repository Card */}
+      <div className="bg-white dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] rounded-lg p-3 space-y-2.5 transition-colors">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <FolderGit2 className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <span className="text-xs font-semibold text-[#37352f] dark:text-[#ebebeb]">
+                Clone to Local Machine
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={onOpenFolderPicker}
+            className="text-[11px] text-[#787774] dark:text-[#9b9a97] hover:text-[#37352f] dark:hover:text-[#ebebeb] flex items-center gap-1 bg-[#f7f7f5] dark:bg-[#282828] px-2 py-0.5 rounded border border-[#e9e9e7] dark:border-[#333333] hover:border-emerald-500 transition-colors"
+          >
+            <FolderOpen className="w-3 h-3" />
+            <span>Browse...</span>
+          </button>
+        </div>
+
+        {/* Path preview */}
+        <div className="text-[11px] font-mono text-[#37352f] dark:text-[#ebebeb] bg-[#f7f7f5] dark:bg-[#191919] px-2.5 py-1.5 rounded border border-[#e9e9e7] dark:border-[#2e2e2e] truncate">
+          {clonePath}
+        </div>
+
+        {/* Progress or Clone button */}
+        {cloneProgress !== null ? (
+          <div className="space-y-1.5 pt-1">
+            <div className="w-full bg-[#e9e9e7] dark:bg-[#2e2e2e] rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-emerald-600 h-1.5 transition-all duration-300 rounded-full"
+                style={{ width: `${cloneProgress}%` }}
+              />
+            </div>
+            <div className="flex justify-between items-center text-[10px] text-[#787774] dark:text-[#9b9a97]">
+              <span className="truncate pr-2">{cloneStatus}</span>
+              <span className="font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                {cloneProgress}%
+              </span>
+            </div>
+
+            {vsCodeUri && (
+              <a
+                href={vsCodeUri}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-md text-xs font-medium shadow-sm transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Open in VS Code
+              </a>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={onExecuteClone}
+            disabled={activeAction !== null}
+            className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+          >
+            <FolderGit2 className="w-3.5 h-3.5" />
+            <span>Clone to Folder</span>
+          </button>
+        )}
+      </div>
+
+      {/* Action 2: Scan Issue & Find Entrypoints */}
+      <div className="bg-white dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] rounded-lg p-2.5 flex items-center justify-between hover:border-emerald-500/50 transition-colors group">
+        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+          <div className="w-7 h-7 rounded bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <Search className="w-3.5 h-3.5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-[#37352f] dark:text-[#ebebeb] truncate">
+              Scan Issue & Entrypoints
+            </div>
+            <div className="text-[11px] text-[#787774] dark:text-[#9b9a97] truncate">
+              AST parsing & targeted file slicing
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => onTriggerAction('scan_issue')}
+          disabled={activeAction !== null}
+          className="flex-shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors flex items-center gap-1 shadow-sm"
+        >
+          {activeAction === 'scan_issue' ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+          <span>Scan</span>
+        </button>
+      </div>
+
+      {/* Action 3: OWASP Security Audit */}
+      <div className="bg-white dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] rounded-lg p-2.5 flex items-center justify-between hover:border-emerald-500/50 transition-colors group">
+        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+          <div className="w-7 h-7 rounded bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-[#37352f] dark:text-[#ebebeb] truncate">
+              Run OWASP Security Check
+            </div>
+            <div className="text-[11px] text-[#787774] dark:text-[#9b9a97] truncate">
+              Pre-flight vulnerability audit
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => onTriggerAction('owasp_check')}
+          disabled={activeAction !== null}
+          className="flex-shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors flex items-center gap-1 shadow-sm"
+        >
+          {activeAction === 'owasp_check' ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+          <span>Audit</span>
+        </button>
+      </div>
+
+      {/* Action 4: Draft PR Description */}
+      <div className="bg-white dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] rounded-lg p-2.5 flex items-center justify-between hover:border-emerald-500/50 transition-colors group">
+        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+          <div className="w-7 h-7 rounded bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <FileCode2 className="w-3.5 h-3.5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-[#37352f] dark:text-[#ebebeb] truncate">
+              Draft PR Description
+            </div>
+            <div className="text-[11px] text-[#787774] dark:text-[#9b9a97] truncate">
+              Standardized repo template & checklist
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => onTriggerAction('draft_pr')}
+          disabled={activeAction !== null}
+          className="flex-shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors flex items-center gap-1 shadow-sm"
+        >
+          {activeAction === 'draft_pr' ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+          <span>Draft PR</span>
+        </button>
+      </div>
+
+      {/* Action 5: Save to Google Drive */}
+      <div className="bg-white dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] rounded-lg p-2.5 flex items-center justify-between hover:border-emerald-500/50 transition-colors group">
+        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+          <div className="w-7 h-7 rounded bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <CloudUpload className="w-3.5 h-3.5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-[#37352f] dark:text-[#ebebeb] truncate">
+              Save to Google Drive
+            </div>
+            <div className="text-[11px] text-[#787774] dark:text-[#9b9a97] truncate">
+              drive.file scoped sanitized export
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={onSaveToDrive}
+          disabled={activeAction !== null}
+          className="flex-shrink-0 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors flex items-center gap-1 shadow-sm"
+        >
+          {activeAction === 'drive' ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+          <span>Save</span>
+        </button>
+      </div>
+    </section>
+  );
+};

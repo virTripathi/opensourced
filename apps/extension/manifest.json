@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Worksmarter: Open-Source Onboarding Assistant",
+  "version": "0.1.0",
+  "description": "Context-aware Chrome Side Panel copilot for open-source contributors browsing GitHub.",
+  "permissions": [
+    "sidePanel",
+    "tabs",
+    "activeTab",
+    "storage",
+    "audioCapture"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://localhost:3001/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.ts",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "action": {
+    "default_title": "Open Worksmarter Side Panel"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["src/content/content-script.ts"],
+      "run_at": "document_idle"
+    }
+  ]
+}

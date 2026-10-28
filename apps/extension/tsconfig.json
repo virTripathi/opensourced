@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "paths": {
+      "@worksmarter/common": ["../../packages/common/src/index.ts"],
+      "@worksmarter/common/types": ["../../packages/common/src/types/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "manifest.json", "vite.config.ts"]
+}
