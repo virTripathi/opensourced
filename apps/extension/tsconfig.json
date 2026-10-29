@@ -9,8 +9,8 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "@worksmarter/common": ["../../packages/common/src/index.ts"],
-      "@worksmarter/common/types": ["../../packages/common/src/types/index.ts"]
+      "@opensourced/common": ["../../packages/common/src/index.ts"],
+      "@opensourced/common/types": ["../../packages/common/src/types/index.ts"]
     }
   },
   "include": ["src/**/*", "manifest.json", "vite.config.ts"]

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Worksmarter: Open-Source Onboarding Assistant",
+  "name": "OpenSourced: Open-Source Onboarding Assistant",
   "version": "0.1.0",
   "description": "Context-aware Chrome Side Panel copilot for open-source contributors browsing GitHub.",
   "permissions": [
@@ -8,10 +8,11 @@
     "tabs",
     "activeTab",
     "storage",
-    "audioCapture"
+    "identity"
   ],
   "host_permissions": [
     "https://github.com/*",
+    "http://localhost:8000/*",
     "http://localhost:3001/*"
   ],
   "background": {
@@ -22,7 +23,7 @@
     "default_path": "index.html"
   },
   "action": {
-    "default_title": "Open Worksmarter Side Panel"
+    "default_title": "Open OpenSourced Side Panel"
   },
   "content_scripts": [
     {

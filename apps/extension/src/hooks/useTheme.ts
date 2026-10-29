@@ -5,7 +5,7 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 export function useTheme() {
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') return 'system';
-    const saved = localStorage.getItem('worksmarter_theme') as ThemeMode | null;
+    const saved = localStorage.getItem('opensourced_theme') as ThemeMode | null;
     return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
   });
 
@@ -18,7 +18,7 @@ export function useTheme() {
 
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window === 'undefined') return 'light';
-    const saved = localStorage.getItem('worksmarter_theme') as ThemeMode | null;
+    const saved = localStorage.getItem('opensourced_theme') as ThemeMode | null;
     if (saved === 'light' || saved === 'dark') return saved;
     return getSystemTheme();
   });
@@ -35,7 +35,7 @@ export function useTheme() {
 
   const setThemeMode = (mode: ThemeMode) => {
     setThemeModeState(mode);
-    localStorage.setItem('worksmarter_theme', mode);
+    localStorage.setItem('opensourced_theme', mode);
     if (mode === 'system') {
       applyTheme(getSystemTheme());
     } else {

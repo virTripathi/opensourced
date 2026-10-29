@@ -11,8 +11,8 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@worksmarter/common': path.resolve(__dirname, '../../packages/common/src/index.ts'),
-      '@worksmarter/common/types': path.resolve(__dirname, '../../packages/common/src/types/index.ts'),
+      '@opensourced/common': path.resolve(__dirname, '../../packages/common/src/index.ts'),
+      '@opensourced/common/types': path.resolve(__dirname, '../../packages/common/src/types/index.ts'),
     },
   },
   server: {

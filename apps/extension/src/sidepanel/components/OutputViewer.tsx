@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Code2,
   CheckCircle,
+  Bookmark,
 } from 'lucide-react';
 
 interface OutputViewerProps {
@@ -17,6 +18,8 @@ interface OutputViewerProps {
   activeAction: string | null;
   driveUrl?: string | null;
   onClear: () => void;
+  onSaveReport?: () => void;
+  isSaved?: boolean;
 }
 
 export const OutputViewer: React.FC<OutputViewerProps> = ({
@@ -25,6 +28,8 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
   activeAction,
   driveUrl,
   onClear,
+  onSaveReport,
+  isSaved = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'report' | 'logs'>('report');
   const [isCopied, setIsCopied] = useState(false);
@@ -64,7 +69,7 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `worksmarter_analysis_${Date.now()}.md`);
+    link.setAttribute('download', `opensourced_analysis_${Date.now()}.md`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -253,6 +258,17 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
               >
                 <Download className="w-3.5 h-3.5" />
               </button>
+
+              {onSaveReport && (
+                <button
+                  onClick={onSaveReport}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#f7f7f5] dark:bg-[#252525] hover:bg-[#ecece9] dark:hover:bg-[#303030] border border-[#e9e9e7] dark:border-[#2e2e2e] text-[#37352f] dark:text-[#ebebeb] transition-colors"
+                  title="Save report to your authenticated account (IDOR-protected)"
+                >
+                  <Bookmark className={`w-3 h-3 ${isSaved ? 'text-emerald-600 fill-emerald-600' : 'text-purple-600'}`} />
+                  <span>{isSaved ? 'Saved' : 'Save'}</span>
+                </button>
+              )}
             </>
           )}
 

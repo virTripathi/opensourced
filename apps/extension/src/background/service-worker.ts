@@ -1,4 +1,4 @@
-import { parseGitHubUrl } from '@worksmarter/common';
+import { parseGitHubUrl } from '@opensourced/common';
 
 // Open side panel on extension action click
 chrome.sidePanel
