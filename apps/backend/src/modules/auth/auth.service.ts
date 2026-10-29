@@ -21,16 +21,41 @@ export class AuthService {
 
   /**
    * Generates a signed JWT token bound to the user's unique identity
+   * and registers an active session record in persistent storage for instant revocation.
    */
-  signToken(user: User): string {
+  async signToken(user: User): Promise<string> {
+    const sid = `sid_${crypto.randomBytes(12).toString('hex')}`;
+    const expiresInMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const expiresAt = new Date(Date.now() + expiresInMs);
+
+    // Register active session in persistent database strategy
+    await this.userRepo.createSession(sid, user.id, expiresAt);
+
     const payload = {
       sub: user.id,
       username: user.username,
       provider: user.provider,
       isGuest: user.isGuest ?? false,
+      sid,
     };
 
     return this.jwtService.sign(payload);
+  }
+
+  /**
+   * Revoke an active session (OWASP A07: Identification and Authentication Failures)
+   */
+  async revokeSession(sessionId: string): Promise<void> {
+    await this.userRepo.revokeSession(sessionId);
+    this.logger.log(`Session revoked: ${sessionId}`);
+  }
+
+  /**
+   * Revoke all sessions for a user (e.g. password change, security breach)
+   */
+  async revokeAllUserSessions(userId: string): Promise<void> {
+    await this.userRepo.revokeAllUserSessions(userId);
+    this.logger.log(`All sessions revoked for user: ${userId}`);
   }
 
   /**
@@ -56,7 +81,7 @@ export class AuthService {
    */
   async getSessionProfile(user?: User): Promise<UserProfile | null> {
     if (user) {
-      const refreshed = this.userRepo.findUserById(user.id);
+      const refreshed = await this.userRepo.findUserById(user.id);
       return this.toProfile(refreshed || user);
     }
 
@@ -70,7 +95,7 @@ export class AuthService {
    */
   async createGuestSession(): Promise<{ user: UserProfile; token: string }> {
     const guestId = `guest_${crypto.randomBytes(6).toString('hex')}`;
-    const user = this.userRepo.upsertUser({
+    const user = await this.userRepo.upsertUser({
       id: guestId,
       username: `guest-${guestId.slice(6, 12)}`,
       displayName: 'Guest Contributor',
@@ -80,7 +105,7 @@ export class AuthService {
       roles: ['guest'],
     });
 
-    const token = this.signToken(user);
+    const token = await this.signToken(user);
     this.logger.log(`Created guest session: '${user.id}'`);
 
     return {
@@ -94,9 +119,9 @@ export class AuthService {
    */
   async devLogin(dto: DevLoginDto): Promise<{ user: UserProfile; token: string }> {
     const username = dto.username.trim().toLowerCase();
-    const existing = this.userRepo.findUserByUsername(username);
+    const existing = await this.userRepo.findUserByUsername(username);
 
-    const user = this.userRepo.upsertUser({
+    const user = await this.userRepo.upsertUser({
       id: existing ? existing.id : `usr_${username.replace(/[^a-z0-9_-]/g, '')}`,
       username,
       displayName: dto.displayName || dto.username,
@@ -106,7 +131,7 @@ export class AuthService {
       roles: ['user'],
     });
 
-    const token = this.signToken(user);
+    const token = await this.signToken(user);
     this.logger.log(`Dev login for user: '${user.username}' (id: ${user.id})`);
 
     return {
@@ -120,12 +145,12 @@ export class AuthService {
    * IDOR PREVENTION: The PAT is strictly saved against the verified userId.
    */
   async savePat(userId: string, pat: string): Promise<UserProfile> {
-    const user = this.userRepo.findUserById(userId);
+    const user = await this.userRepo.findUserById(userId);
     if (!user) {
       throw new NotFoundException(`User '${userId}' not found`);
     }
 
-    const updated = this.userRepo.upsertUser({
+    const updated = await this.userRepo.upsertUser({
       ...user,
       pat: pat.trim(),
     });
@@ -139,7 +164,7 @@ export class AuthService {
    * Never exposes raw PAT in plain text.
    */
   async getPatStatus(userId: string): Promise<{ hasPat: boolean; maskedPat?: string }> {
-    const user = this.userRepo.findUserById(userId);
+    const user = await this.userRepo.findUserById(userId);
     if (!user || !user.pat) {
       return { hasPat: false };
     }
@@ -173,7 +198,7 @@ export class AuthService {
   }
 
   private async executeRefreshGitHubToken(userId: string): Promise<string> {
-    const user = this.userRepo.findUserById(userId);
+    const user = await this.userRepo.findUserById(userId);
     if (!user || !user.githubRefreshToken) {
       throw new UnauthorizedException('No GitHub refresh token available for user');
     }
@@ -241,7 +266,7 @@ export class AuthService {
       const expiresIn = Number(data.expires_in) || 28800; // 8 hours default
       const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-      this.userRepo.upsertUser({
+      await this.userRepo.upsertUser({
         id: user.id,
         githubAccessToken: data.access_token,
         githubRefreshToken: data.refresh_token || user.githubRefreshToken,
@@ -265,7 +290,7 @@ export class AuthService {
    * when within 5 minutes of expiration.
    */
   async getValidGitHubToken(userId: string): Promise<string | undefined> {
-    const user = this.userRepo.findUserById(userId);
+    const user = await this.userRepo.findUserById(userId);
     if (!user) return undefined;
 
     // 1. Personal Access Token (PAT) override takes precedence if user provided one
@@ -298,4 +323,3 @@ export class AuthService {
     return user.githubAccessToken;
   }
 }
-

@@ -19,6 +19,9 @@ import type { AiConfig } from './ai.config';
 import { loggerConfig } from './logger.config';
 import type { LoggerConfig } from './logger.config';
 
+import { databaseConfig, DEFAULT_DATABASE_TYPE, DEFAULT_DATABASE_URL } from './database.config';
+import type { DatabaseConfig } from './database.config';
+
 export const loadConfigs = [
   appConfig,
   authConfig,
@@ -26,6 +29,7 @@ export const loadConfigs = [
   googleConfig,
   aiConfig,
   loggerConfig,
+  databaseConfig,
 ];
 
 export {
@@ -42,6 +46,9 @@ export {
   DEFAULT_GEMINI_MODEL,
   DEFAULT_RANKING_PROVIDER,
   loggerConfig,
+  databaseConfig,
+  DEFAULT_DATABASE_TYPE,
+  DEFAULT_DATABASE_URL,
 };
 
 export type {
@@ -51,6 +58,7 @@ export type {
   GoogleConfig,
   AiConfig,
   LoggerConfig,
+  DatabaseConfig,
 };
 
 export interface AppConfigRegistry {
@@ -60,4 +68,5 @@ export interface AppConfigRegistry {
   google: GoogleConfig;
   ai: AiConfig;
   logger: LoggerConfig;
+  database: DatabaseConfig;
 }

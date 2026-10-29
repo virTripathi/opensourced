@@ -8,6 +8,7 @@ import { DriveModule } from './modules/drive/drive.module';
 import { GuardrailsModule } from './modules/guardrails/guardrails.module';
 
 import { LoggerModule } from './modules/logger/logger.module';
+import { DatabaseModule } from './modules/database/database.module';
 
 import { loadConfigs } from './config';
 
@@ -18,6 +19,7 @@ import { loadConfigs } from './config';
       envFilePath: ['.env.local', '.env'],
       load: loadConfigs,
     }),
+    DatabaseModule,
     LoggerModule,
     GitModule,
     AgentModule,

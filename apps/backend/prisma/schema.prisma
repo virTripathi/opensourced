@@ -1,0 +1,64 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                   String    @id
+  username             String    @unique
+  displayName          String?
+  email                String?
+  avatarUrl            String?
+  isGuest              Boolean   @default(false)
+  provider             String    @default("guest")
+  providerId           String?
+  githubAccessToken    String?
+  githubRefreshToken   String?
+  githubTokenExpiresAt DateTime?
+  githubTokenType      String?
+  googleAccessToken    String?
+  googleRefreshToken   String?
+  pat                  String?
+  roles                String    @default("[\"user\"]")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  sessions             Session[]
+  reports              Report[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Report {
+  id        String   @id
+  userId    String
+  title     String
+  repo      String
+  action    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("reports")
+}

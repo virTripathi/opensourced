@@ -59,16 +59,23 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
   getAuthenticateOptions(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<Request>();
     const redirect = req.query?.redirect || req.query?.state;
-    if (redirect) {
-      return {
-        state: String(redirect),
-        accessType: 'offline',
-        prompt: 'consent',
-      };
-    }
-    return {
+    const linkToken =
+      (req.query?.link_token as string) ||
+      (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : undefined) ||
+      req.cookies?.auth_token;
+
+    const options: any = {
       accessType: 'offline',
       prompt: 'consent',
     };
+
+    if (redirect || linkToken) {
+      options.state = JSON.stringify({
+        redirect: redirect ? String(redirect) : undefined,
+        linkToken: linkToken ? String(linkToken) : undefined,
+      });
+    }
+
+    return options;
   }
 }

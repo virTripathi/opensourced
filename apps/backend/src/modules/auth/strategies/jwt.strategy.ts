@@ -10,6 +10,7 @@ export interface JwtPayload {
   username: string;
   provider: 'github' | 'google' | 'guest' | 'dev';
   isGuest?: boolean;
+  sid?: string;
 }
 
 @Injectable()
@@ -38,16 +39,28 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('Invalid JWT payload: missing subject identifier');
     }
 
-    let user = this.userRepo.findUserById(payload.sub);
+    // OWASP A07: Verify session revocation status if session ID is attached
+    if (payload.sid) {
+      const isRevoked = await this.userRepo.isSessionRevoked(payload.sid);
+      if (isRevoked) {
+        throw new UnauthorizedException('Session has been revoked or expired');
+      }
+    }
 
-    // If user record is not yet in memory (e.g. server reboot), re-register user from verified JWT
+    let user = await this.userRepo.findUserById(payload.sub);
+
+    // If user record is not yet in persistent storage, re-register user from verified JWT
     if (!user) {
-      user = this.userRepo.upsertUser({
+      user = await this.userRepo.upsertUser({
         id: payload.sub,
         username: payload.username,
         provider: payload.provider || 'guest',
         isGuest: payload.isGuest ?? false,
       });
+    }
+
+    if (payload.sid && user) {
+      (user as any).sessionId = payload.sid;
     }
 
     return user;

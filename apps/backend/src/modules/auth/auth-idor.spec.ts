@@ -80,7 +80,7 @@ async function runAuthAndIdorTests() {
   // Test 3: Zero-Leakage in UserProfile Serialization
   // --------------------------------------------------------------------------
   await test('UserProfile serialization never exposes raw access tokens or secrets', async () => {
-    const userWithTokens = userRepo.upsertUser({
+    const userWithTokens = await userRepo.upsertUser({
       id: 'usr_secret_leak_test',
       username: 'security-tester',
       provider: 'github',
@@ -329,9 +329,9 @@ async function runAuthAndIdorTests() {
   // --------------------------------------------------------------------------
   // Test 16: GitHub App Token Lifecycle & Persistence
   // --------------------------------------------------------------------------
-  await test('GitHub App token lifecycle: stores short-lived access token, refresh token & metadata', () => {
+  await test('GitHub App token lifecycle: stores short-lived access token, refresh token & metadata', async () => {
     const expiresAt = new Date(Date.now() + 28800 * 1000); // 8 hours
-    const user = userRepo.upsertUser({
+    const user = await userRepo.upsertUser({
       id: 'gh_999999',
       username: 'octo-contributor',
       provider: 'github',
@@ -363,7 +363,7 @@ async function runAuthAndIdorTests() {
     assert.strictEqual(token, 'ghu_fake_user_access_token_123');
 
     // If user sets a PAT, PAT takes priority over GitHub App user token
-    userRepo.upsertUser({
+    await userRepo.upsertUser({
       id: 'gh_999999',
       pat: 'ghp_custom_personal_access_token',
     });

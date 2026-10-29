@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import * as crypto from 'crypto';
+import { Injectable, Logger, Inject, Optional, OnModuleInit } from '@nestjs/common';
+import { DATABASE_STRATEGY, IDatabaseStrategy, UserSession } from '../database/database.strategy';
+import { MemoryDatabaseStrategy } from '../database/strategies/memory.strategy';
 
 export interface User {
   id: string;
@@ -33,159 +34,114 @@ export interface UserReport {
   updatedAt: string;
 }
 
+export type { UserSession };
+
 @Injectable()
-export class UserRepository {
+export class UserRepository implements OnModuleInit {
   private readonly logger = new Logger(UserRepository.name);
+  private readonly db: IDatabaseStrategy;
 
-  // In-memory tenant-isolated stores
-  private readonly users = new Map<string, User>();
-  private readonly reports = new Map<string, UserReport>();
+  constructor(
+    @Optional() @Inject(DATABASE_STRATEGY) injectedDb?: IDatabaseStrategy
+  ) {
+    this.db = injectedDb || new MemoryDatabaseStrategy();
+  }
 
-  constructor() {
-    // Seed a default local developer account
-    this.upsertUser({
-      id: 'local-dev-user',
-      username: 'opensource-developer',
-      displayName: 'OpenSource Developer',
-      avatarUrl: 'https://github.com/identicons/opensourced.png',
-      provider: 'dev',
-      isGuest: false,
-      roles: ['user'],
-    });
+  async onModuleInit() {
+    await this.db.connect();
+    // Seed default developer account
+    try {
+      await this.upsertUser({
+        id: 'local-dev-user',
+        username: 'opensource-developer',
+        displayName: 'OpenSource Developer',
+        avatarUrl: 'https://github.com/identicons/opensourced.png',
+        provider: 'dev',
+        isGuest: false,
+        roles: ['user'],
+      });
+      this.logger.log(`Initialized UserRepository with '${this.db.strategyName}' strategy`);
+    } catch (err: any) {
+      this.logger.warn(`Could not seed default developer account: ${err.message}`);
+    }
+  }
+
+  getStrategy(): IDatabaseStrategy {
+    return this.db;
   }
 
   // ============================================================================
   // User Management
   // ============================================================================
 
-  findUserById(id: string): User | undefined {
-    return this.users.get(id);
+  async findUserById(id: string): Promise<User | undefined> {
+    return this.db.findUserById(id);
   }
 
-  findUserByUsername(username: string): User | undefined {
-    return Array.from(this.users.values()).find(
-      (u) => u.username.toLowerCase() === username.toLowerCase()
-    );
+  async findUserByUsername(username: string): Promise<User | undefined> {
+    return this.db.findUserByUsername(username);
   }
 
-  findUserByOAuth(provider: 'github' | 'google', providerId: string): User | undefined {
-    return Array.from(this.users.values()).find(
-      (u) => u.provider === provider && u.providerId === providerId
-    );
+  async findUserByOAuth(provider: 'github' | 'google', providerId: string): Promise<User | undefined> {
+    return this.db.findUserByOAuth(provider, providerId);
   }
 
-  upsertUser(userPartial: Partial<User> & { id: string }): User {
-    const existing = this.users.get(userPartial.id);
-    const now = new Date();
-
-    const user: User = {
-      id: userPartial.id,
-      username: userPartial.username || existing?.username || `user-${userPartial.id.slice(0, 8)}`,
-      displayName: userPartial.displayName ?? existing?.displayName,
-      email: userPartial.email ?? existing?.email,
-      avatarUrl: userPartial.avatarUrl ?? existing?.avatarUrl ?? 'https://github.com/identicons/guest.png',
-      isGuest: userPartial.isGuest ?? existing?.isGuest ?? false,
-      provider: userPartial.provider || existing?.provider || 'guest',
-      providerId: userPartial.providerId ?? existing?.providerId,
-      githubAccessToken: userPartial.githubAccessToken ?? existing?.githubAccessToken,
-      githubRefreshToken: userPartial.githubRefreshToken ?? existing?.githubRefreshToken,
-      githubTokenExpiresAt: userPartial.githubTokenExpiresAt ?? existing?.githubTokenExpiresAt,
-      githubTokenType: userPartial.githubTokenType ?? existing?.githubTokenType,
-      googleAccessToken: userPartial.googleAccessToken ?? existing?.googleAccessToken,
-      googleRefreshToken: userPartial.googleRefreshToken ?? existing?.googleRefreshToken,
-      pat: userPartial.pat ?? existing?.pat,
-      roles: userPartial.roles ?? existing?.roles ?? ['user'],
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
-    };
-
-    this.users.set(user.id, user);
-    return user;
+  async upsertUser(userPartial: Partial<User> & { id: string }): Promise<User> {
+    return this.db.upsertUser(userPartial);
   }
 
   // ============================================================================
-  // IDOR-Protected User Resource Storage
+  // Session & Instant Token Revocation (OWASP A07 Defense)
   // ============================================================================
 
-  /**
-   * Save a user-scoped analysis report.
-   * Cryptographically generates a report ID and binds it strictly to the requesting userId.
-   */
-  createReport(
+  async createSession(sessionId: string, userId: string, expiresAt: Date): Promise<UserSession> {
+    return this.db.createSession(sessionId, userId, expiresAt);
+  }
+
+  async findSessionById(sessionId: string): Promise<UserSession | undefined> {
+    return this.db.findSessionById(sessionId);
+  }
+
+  async isSessionRevoked(sessionId: string): Promise<boolean> {
+    return this.db.isSessionRevoked(sessionId);
+  }
+
+  async revokeSession(sessionId: string): Promise<void> {
+    return this.db.revokeSession(sessionId);
+  }
+
+  async revokeAllUserSessions(userId: string): Promise<void> {
+    return this.db.revokeAllUserSessions(userId);
+  }
+
+  // ============================================================================
+  // IDOR-Protected Report Management (OWASP A01 Defense)
+  // ============================================================================
+
+  async createReport(
     userId: string,
     reportData: { title: string; repo: string; action: string; content: string }
-  ): UserReport {
-    const id = `rep_${crypto.randomBytes(8).toString('hex')}`;
-    const now = new Date().toISOString();
-
-    const report: UserReport = {
-      id,
-      userId,
-      title: reportData.title,
-      repo: reportData.repo,
-      action: reportData.action,
-      content: reportData.content,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    this.reports.set(id, report);
-    this.logger.log(`Created report '${id}' owned strictly by user '${userId}'`);
-    return report;
+  ): Promise<UserReport> {
+    return this.db.createReport(userId, reportData);
   }
 
-  /**
-   * List all reports owned by a given user.
-   * Completely filters out other users' records to prevent IDOR data leakage.
-   */
-  findReportsByUserId(userId: string): UserReport[] {
-    return Array.from(this.reports.values())
-      .filter((r) => r.userId === userId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  async findReportsByUserId(userId: string): Promise<UserReport[]> {
+    return this.db.findReportsByUserId(userId);
   }
 
-  /**
-   * Fetch a single report by ID with STRICT user ownership verification.
-   * IDOR PREVENTION:
-   * Returns undefined if report does not exist OR if report.userId !== requesting userId.
-   */
-  findReportByIdAndUserId(reportId: string, userId: string): UserReport | undefined {
-    const report = this.reports.get(reportId);
-    if (!report) {
-      return undefined;
-    }
-
-    // IDOR Check: Ensure the requesting user actually owns this report
-    if (report.userId !== userId) {
-      this.logger.warn(
-        `🚨 IDOR ATTEMPT BLOCKED: User '${userId}' attempted to access report '${reportId}' owned by '${report.userId}'`
-      );
-      return undefined; // Handled as 404 in controller to avoid enumeration
-    }
-
-    return report;
+  async findReportByIdAndUserId(reportId: string, userId: string): Promise<UserReport | undefined> {
+    return this.db.findReportByIdAndUserId(reportId, userId);
   }
 
-  /**
-   * Delete a report with strict ownership check.
-   * IDOR PREVENTION:
-   * Returns false if report does not exist OR does not belong to the requesting user.
-   */
-  deleteReportByIdAndUserId(reportId: string, userId: string): boolean {
-    const report = this.reports.get(reportId);
-    if (!report) {
-      return false;
-    }
+  async deleteReportByIdAndUserId(reportId: string, userId: string): Promise<boolean> {
+    return this.db.deleteReportByIdAndUserId(reportId, userId);
+  }
 
-    if (report.userId !== userId) {
-      this.logger.warn(
-        `🚨 IDOR DELETION BLOCKED: User '${userId}' attempted to delete report '${reportId}' owned by '${report.userId}'`
-      );
-      return false;
-    }
+  // ============================================================================
+  // ACID Transactions Support
+  // ============================================================================
 
-    this.reports.delete(reportId);
-    this.logger.log(`Deleted report '${reportId}' by owner '${userId}'`);
-    return true;
+  async transaction<T>(fn: (strategy: IDatabaseStrategy) => Promise<T>): Promise<T> {
+    return this.db.transaction(fn);
   }
 }

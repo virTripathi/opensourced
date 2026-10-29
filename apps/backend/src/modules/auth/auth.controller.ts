@@ -47,11 +47,9 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Session authentication status and user profile' })
   async getSession(@CurrentUser() user?: User) {
     const profile = await this.authService.getSessionProfile(user);
-    const token = user ? this.authService.signToken(user) : null;
     return {
       authenticated: Boolean(profile),
       user: profile,
-      token,
       providers: {
         github: Boolean(this.configService.get<boolean>('github.isConfigured')),
         google: Boolean(this.configService.get<boolean>('google.isConfigured')),
@@ -172,7 +170,7 @@ export class AuthController {
       return res.redirect(`${appUrl}/api/auth/session?error=auth_failed`);
     }
 
-    const token = this.authService.signToken(user);
+    const token = await this.authService.signToken(user);
     this.setAuthCookie(res, token);
 
     // OWASP A01 / Anti-Open-Redirect: Strictly validate target redirect URL
@@ -237,15 +235,26 @@ export class AuthController {
       return res.redirect(`${appUrl}/api/auth/session?error=google_auth_failed`);
     }
 
-    const token = this.authService.signToken(user);
+    const token = await this.authService.signToken(user);
     this.setAuthCookie(res, token);
 
-    // OWASP A01 / Anti-Open-Redirect: Strictly validate target redirect URL
-    const rawRedirect = stateQuery || redirectQuery;
-    const target = this.validateSafeRedirectUrl(rawRedirect);
+    // OWASP A01 / Anti-Open-Redirect: Safely extract redirect target from JSON state or query
+    let redirectUrl = redirectQuery;
+    if (stateQuery) {
+      try {
+        const parsed = JSON.parse(stateQuery);
+        if (parsed.redirect) {
+          redirectUrl = parsed.redirect;
+        }
+      } catch {
+        redirectUrl = stateQuery;
+      }
+    }
+
+    const target = this.validateSafeRedirectUrl(redirectUrl);
 
     // Direct browser login fallback
-    if (!rawRedirect || target === `${appUrl}/api/auth/session`) {
+    if (!redirectUrl || target === `${appUrl}/api/auth/session`) {
       res.setHeader('Content-Type', 'text/html');
       return res.send(this.renderAuthSuccessHtml(user, token, 'Google Drive'));
     }
@@ -258,13 +267,23 @@ export class AuthController {
   // ============================================================================
 
   @Post('logout')
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Log Out & Clear Session Cookie',
     description: 'Clears the HTTP-only auth_token cookie and invalidates client session.',
   })
   @ApiResponse({ status: 200, description: 'Session terminated' })
-  async logout(@Res({ passthrough: true }) res: Response) {
+  async logout(
+    @CurrentUser() user: User | undefined,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    if ((user as any)?.sessionId) {
+      await this.authService.revokeSession((user as any).sessionId);
+    } else if (user?.id) {
+      await this.authService.revokeAllUserSessions(user.id);
+    }
+
     res.clearCookie('auth_token', {
       httpOnly: true,
       secure: this.isProduction(),
@@ -419,22 +438,42 @@ export class AuthController {
     <button class="btn" onclick="window.close()">Close Window</button>
   </div>
   <script>
+    const authData = {
+      type: 'OPENSOURCED_AUTH_TOKEN',
+      token: '${token}',
+      provider: '${providerName}',
+      user: ${JSON.stringify({
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        email: user.email,
+        googleConnected: Boolean(user.googleAccessToken || user.provider === 'google'),
+        githubConnected: Boolean(user.githubAccessToken || user.provider === 'github'),
+      })}
+    };
+
+    // 1. PostMessage to opener (if accessible)
     try {
       if (window.opener) {
-        window.opener.postMessage({
-          type: 'OPENSOURCED_AUTH_TOKEN',
-          token: '${token}',
-          user: ${JSON.stringify({
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName,
-            avatarUrl: user.avatarUrl,
-            email: user.email,
-          })}
-        }, '*');
-        setTimeout(() => { try { window.close(); } catch(e){} }, 1200);
+        window.opener.postMessage(authData, '*');
       }
     } catch (e) {}
+
+    // 2. BroadcastChannel for cross-context browser extension & tab communication
+    try {
+      const bc = new BroadcastChannel('opensourced_auth_channel');
+      bc.postMessage(authData);
+      bc.close();
+    } catch (e) {}
+
+    // 3. Storage event fallback for same-origin tabs
+    try {
+      localStorage.setItem('opensourced_auth_broadcast', JSON.stringify({ ...authData, timestamp: Date.now() }));
+    } catch (e) {}
+
+    // Auto-close after brief confirmation window
+    setTimeout(() => { try { window.close(); } catch(e){} }, 1200);
   </script>
 </body>
 </html>`;

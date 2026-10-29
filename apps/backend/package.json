@@ -8,7 +8,11 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "test": "ts-node src/modules/auth/auth-idor.spec.ts && ts-node src/modules/logger/logger-and-idempotency.spec.ts",
+    "test": "ts-node src/modules/auth/auth-idor.spec.ts && ts-node src/modules/logger/logger-and-idempotency.spec.ts && ts-node src/modules/database/database-strategy.spec.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
@@ -24,6 +28,7 @@
     "@nestjs/swagger": "^7.4.2",
     "@octokit/rest": "^21.0.2",
     "@opensourced/common": "*",
+    "@prisma/client": "^6.19.3",
     "cookie-parser": "^1.4.7",
     "passport": "^0.7.0",
     "passport-github2": "^0.1.12",
@@ -44,6 +49,7 @@
     "@types/passport-github2": "^1.2.9",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
+    "prisma": "^6.19.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   }

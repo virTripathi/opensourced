@@ -14,7 +14,7 @@ export class ReportsService {
    */
   async createReport(userId: string, dto: CreateReportDto): Promise<UserReport> {
     // Idempotency Guard: Prevent duplicate reports on accidental rapid double-clicks
-    const existingReports = this.userRepo.findReportsByUserId(userId);
+    const existingReports = await this.userRepo.findReportsByUserId(userId);
     const fifteenSecondsAgo = Date.now() - 15 * 1000;
     const duplicate = existingReports.find(
       (r) =>
@@ -32,7 +32,7 @@ export class ReportsService {
       return duplicate;
     }
 
-    const report = this.userRepo.createReport(userId, {
+    const report = await this.userRepo.createReport(userId, {
       title: dto.title,
       repo: dto.repo,
       action: dto.action,
@@ -60,7 +60,7 @@ export class ReportsService {
    * to prevent ID enumeration and data leakage.
    */
   async getReportById(reportId: string, userId: string): Promise<UserReport> {
-    const report = this.userRepo.findReportByIdAndUserId(reportId, userId);
+    const report = await this.userRepo.findReportByIdAndUserId(reportId, userId);
     if (!report) {
       throw new NotFoundException(`Report '${reportId}' not found`);
     }
@@ -74,7 +74,7 @@ export class ReportsService {
    * Only allows deletion if the requesting user is the verified owner.
    */
   async deleteReportById(reportId: string, userId: string): Promise<{ success: boolean; message: string }> {
-    const deleted = this.userRepo.deleteReportByIdAndUserId(reportId, userId);
+    const deleted = await this.userRepo.deleteReportByIdAndUserId(reportId, userId);
     if (!deleted) {
       throw new NotFoundException(`Report '${reportId}' not found`);
     }

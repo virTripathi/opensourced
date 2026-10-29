@@ -58,7 +58,7 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github', 5) {
     const expiresInSeconds = tokenParams.expires_in ? Number(tokenParams.expires_in) : 28800;
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
 
-    const user = this.userRepo.upsertUser({
+    const user = await this.userRepo.upsertUser({
       id: `gh_${providerId}`,
       username,
       displayName: profile.displayName || username,
