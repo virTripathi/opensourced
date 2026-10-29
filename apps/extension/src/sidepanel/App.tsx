@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GitHubContext, ServerSentEvent } from '@opensourced/common/types';
 import { parseGitHubUrl } from '@opensourced/common';
+import { CheckCircle2, ArrowRight, X } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
+import { useReportCache, StoredReport } from '../hooks/useReportCache';
 import { AuthScreen } from './components/AuthScreen';
 import { Header } from './components/Header';
 import { ContextCard } from './components/ContextCard';
 import { WisprVoiceBar } from './components/WisprVoiceBar';
 import { ActionCards } from './components/ActionCards';
 import { OutputViewer } from './components/OutputViewer';
+import { ReportsScreen } from './components/ReportsScreen';
 import { EXTENSION_CONFIG } from '../config/constants';
 
 const API_BASE = EXTENSION_CONFIG.apiBase;
@@ -29,21 +32,42 @@ export default function App() {
     logout,
   } = useAuth();
 
-  // Screen Routing: 'auth' (Authentication screen) vs 'workspace' (Main workspace)
-  const [currentScreen, setCurrentScreen] = useState<'auth' | 'workspace'>('auth');
+  // Universal Report Cache (works in chrome.storage.local, localStorage, and syncs with backend)
+  const {
+    reports,
+    saveReport,
+    deleteReport,
+    getReportsForRepo,
+    getLatestReportForAction,
+    syncWithBackend,
+  } = useReportCache(API_BASE, getAuthHeaders);
+
+  // Screen Routing: 'auth' | 'workspace' | 'reports'
+  const [currentScreen, setCurrentScreen] = useState<'auth' | 'workspace' | 'reports'>('auth');
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [hasProceededWithoutAuth, setHasProceededWithoutAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Completed Action Notification in Workspace
+  const [completedNotification, setCompletedNotification] = useState<{
+    message: string;
+    actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr';
+    reportId?: string;
+  } | null>(null);
 
   // Synchronize screen state with authenticated session
   useEffect(() => {
     if (!isLoading) {
       if (userProfile || authToken) {
-        setCurrentScreen('workspace');
+        if (currentScreen === 'auth') {
+          setCurrentScreen('workspace');
+        }
+        syncWithBackend();
       } else if (!hasProceededWithoutAuth) {
         setCurrentScreen('auth');
       }
     }
-  }, [isLoading, userProfile, authToken, hasProceededWithoutAuth]);
+  }, [isLoading, userProfile, authToken, hasProceededWithoutAuth, syncWithBackend]);
 
   const [isReportSaved, setIsReportSaved] = useState(false);
 
@@ -113,6 +137,41 @@ export default function App() {
       return () => chrome.runtime.onMessage.removeListener(listener);
     }
   }, []);
+
+  // Context-derived repository reports and action state mapping
+  const contextRepoFullName = useMemo(() => {
+    return context ? `${context.owner}/${context.repo}` : '';
+  }, [context]);
+
+  const contextReports = useMemo(() => {
+    if (!contextRepoFullName) return [];
+    return getReportsForRepo(contextRepoFullName, context?.issueNumber);
+  }, [contextRepoFullName, context?.issueNumber, getReportsForRepo, reports]);
+
+  const reportsByAction = useMemo(() => {
+    if (!contextRepoFullName) return {};
+    const map: Partial<Record<'scan_issue' | 'owasp_check' | 'draft_pr', { id: string; createdAt: string }>> = {};
+    (['scan_issue', 'owasp_check', 'draft_pr'] as const).forEach((actionKey) => {
+      const rep = getLatestReportForAction(contextRepoFullName, actionKey, context?.issueNumber);
+      if (rep) {
+        map[actionKey] = {
+          id: rep.id,
+          createdAt: rep.createdAt,
+        };
+      }
+    });
+    return map;
+  }, [contextRepoFullName, context?.issueNumber, getLatestReportForAction, reports]);
+
+  const activeReportToView = useMemo(() => {
+    if (selectedReportId) {
+      const found = reports.find((r) => r.id === selectedReportId);
+      if (found) return found;
+    }
+    if (contextReports.length > 0) return contextReports[0];
+    if (reports.length > 0) return reports[0];
+    return null;
+  }, [selectedReportId, contextReports, reports]);
 
   // Auth Handlers with telemetry feedback & screen transitions
   const handleGuestLogin = async () => {
@@ -368,7 +427,7 @@ export default function App() {
     }
   };
 
-  // Agent Actions (Scan, OWASP, Draft PR)
+  // Agent Actions (Scan, OWASP, Draft PR) with Automatic Report Cache Persistence
   const handleTriggerAction = async (actionType: 'scan_issue' | 'owasp_check' | 'draft_pr') => {
     if (!context) {
       setStreamLogs((prev) => [
@@ -382,7 +441,10 @@ export default function App() {
     setLatestResult('');
     setDriveUrl(null);
     setIsReportSaved(false);
+    setCompletedNotification(null);
     setStreamLogs((prev) => [...prev, `[PIPELINE] Starting action: ${actionType}...`]);
+
+    let accumulatedResult = '';
 
     try {
       const response = await fetch(`${API_BASE}/api/agent/stream`, {
@@ -412,10 +474,37 @@ export default function App() {
               } else if (event.type === 'TOOL_RESULT') {
                 setStreamLogs((prev) => [...prev, `[TOOL RESULT] ${event.tool}: ${event.summary}`]);
               } else if (event.type === 'TOKEN_DELTA') {
+                accumulatedResult += event.text;
                 setLatestResult((prev) => prev + event.text);
               } else if (event.type === 'PIPELINE_COMPLETE') {
                 setStreamLogs((prev) => [...prev, `[SUCCESS] Completed ${actionType}`]);
                 setActiveAction(null);
+
+                // Persist completed report to cache for instant dual affordance & Reports screen
+                if (accumulatedResult.trim()) {
+                  const actionLabels: Record<string, string> = {
+                    scan_issue: `Entrypoint Scan for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
+                    owasp_check: `OWASP Security Audit for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
+                    draft_pr: `PR Description Draft for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
+                  };
+
+                  saveReport({
+                    title: actionLabels[actionType] || `Analysis for ${context.repo}`,
+                    repo: `${context.owner}/${context.repo}`,
+                    issueNumber: context.issueNumber,
+                    action: actionType,
+                    content: accumulatedResult,
+                    streamLogs: [...streamLogs],
+                  }).then((saved) => {
+                    setSelectedReportId(saved.id);
+                    setIsReportSaved(true);
+                    setCompletedNotification({
+                      message: `${actionLabels[actionType] || 'Analysis'} generated successfully!`,
+                      actionKey: actionType,
+                      reportId: saved.id,
+                    });
+                  });
+                }
               } else if (event.type === 'PIPELINE_ERROR') {
                 setStreamLogs((prev) => [...prev, `[ERROR] ${event.message}`]);
                 setActiveAction(null);
@@ -447,7 +536,7 @@ export default function App() {
         credentials: 'include',
         body: JSON.stringify({
           title: `[Issue-${context.issueNumber || 'General'}]_${context.repo}_Analysis.md`,
-          content: latestResult || 'OpenSourced Analysis Artifact for ' + context.repo,
+          content: (activeReportToView?.content || latestResult) || 'OpenSourced Analysis Artifact for ' + context.repo,
         }),
       });
       const data = await res.json();
@@ -464,6 +553,17 @@ export default function App() {
     } finally {
       setActiveAction(null);
     }
+  };
+
+  // Navigation Handler: View Report from Action Card or Notification
+  const handleViewReport = (actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr') => {
+    if (contextRepoFullName) {
+      const rep = getLatestReportForAction(contextRepoFullName, actionKey, context?.issueNumber);
+      if (rep) {
+        setSelectedReportId(rep.id);
+      }
+    }
+    setCurrentScreen('reports');
   };
 
   // Wispr Flow Voice toggle & recognition
@@ -524,11 +624,36 @@ export default function App() {
   }
 
   // ==========================================================================
-  // SCREEN 2: Workspace / Contributor Dashboard Screen
+  // SCREEN 2: Dedicated Reports Screen (Full-Height Document Reader)
+  // ==========================================================================
+  if (currentScreen === 'reports') {
+    return (
+      <ReportsScreen
+        activeReport={activeReportToView}
+        availableReports={contextReports.length > 0 ? contextReports : reports}
+        onSelectReport={(rep) => setSelectedReportId(rep.id)}
+        onBackToWorkspace={() => setCurrentScreen('workspace')}
+        onSaveToDrive={handleSaveToDrive}
+        onDeleteReport={async (reportId) => {
+          await deleteReport(reportId);
+          setSelectedReportId(null);
+        }}
+        onRescan={(actionType) => {
+          setCurrentScreen('workspace');
+          handleTriggerAction(actionType);
+        }}
+        driveUrl={driveUrl}
+        isDark={resolvedTheme === 'dark'}
+      />
+    );
+  }
+
+  // ==========================================================================
+  // SCREEN 3: Workspace / Contributor Dashboard Screen (with Dual Affordance)
   // ==========================================================================
   return (
     <div className="flex flex-col min-h-screen bg-white text-[#37352f] dark:bg-[#191919] dark:text-[#ebebeb] p-3.5 space-y-3 font-sans transition-colors selection:bg-emerald-600 selection:text-white">
-      {/* Notion Workspace Header & Breadcrumbs with Auth Controls */}
+      {/* Notion Workspace Header & Breadcrumbs with Auth Controls & Navigation Pills */}
       <Header
         context={context}
         themeMode={themeMode}
@@ -541,7 +666,48 @@ export default function App() {
         onGoogleLogin={handleGoogleLogin}
         onLogout={handleLogout}
         onNavigateToAuth={() => setCurrentScreen('auth')}
+        currentScreen={currentScreen}
+        reportsCount={contextReports.length}
+        onNavigate={(screen) => setCurrentScreen(screen)}
       />
+
+      {/* Completed Report Banner in Workspace (Instant 1-Click Navigation) */}
+      {completedNotification && (
+        <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-xs transition-all shadow-2xs">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="font-semibold text-emerald-950 dark:text-emerald-200 truncate">
+                {completedNotification.message}
+              </div>
+              <div className="text-[11px] text-emerald-800 dark:text-emerald-300">
+                Full-height report is ready for inspection
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              onClick={() => {
+                if (completedNotification.reportId) {
+                  setSelectedReportId(completedNotification.reportId);
+                }
+                setCurrentScreen('reports');
+              }}
+              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-medium flex items-center gap-1 shadow-2xs"
+            >
+              <span>View Report</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => setCompletedNotification(null)}
+              className="p-1 text-emerald-700 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-emerald-100"
+              title="Dismiss notification"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Active GitHub Context (Notion Callout) */}
       <ContextCard context={context} />
@@ -554,7 +720,7 @@ export default function App() {
         onVoiceAction={handleVoiceAction}
       />
 
-      {/* Notion Action Cards (with green action buttons, cancellation, and repo retry) */}
+      {/* Notion Action Cards with Dual Affordance (View Report ➔ & Re-scan ↻) */}
       <ActionCards
         hasContext={Boolean(context)}
         activeAction={activeAction}
@@ -569,21 +735,23 @@ export default function App() {
         onCancelClone={handleCancelClone}
         onTriggerAction={handleTriggerAction}
         onSaveToDrive={handleSaveToDrive}
+        onViewReport={handleViewReport}
+        reportsByAction={reportsByAction}
       />
 
-      {/* Notion Output Viewer (Report + Live Telemetry + IDOR-Protected Save) */}
-      <OutputViewer
-        latestResult={latestResult}
-        streamLogs={streamLogs}
-        activeAction={activeAction}
-        driveUrl={driveUrl}
-        onClear={handleClearOutput}
-        onSaveReport={latestResult ? handleSaveUserReport : undefined}
-        isSaved={isReportSaved}
-        isDark={resolvedTheme === 'dark'}
-      />
+      {/* Live Telemetry Output (when executing) or Previous Output */}
+      {(activeAction !== null || latestResult || streamLogs.length > 0) && (
+        <OutputViewer
+          latestResult={latestResult}
+          streamLogs={streamLogs}
+          activeAction={activeAction}
+          driveUrl={driveUrl}
+          onClear={handleClearOutput}
+          onSaveReport={latestResult ? handleSaveUserReport : undefined}
+          isSaved={isReportSaved}
+          isDark={resolvedTheme === 'dark'}
+        />
+      )}
     </div>
   );
 }
-
-
