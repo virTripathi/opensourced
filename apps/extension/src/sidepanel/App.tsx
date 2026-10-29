@@ -453,9 +453,10 @@ export default function App() {
       const data = await res.json();
       if (data.webViewLink) {
         setDriveUrl(data.webViewLink);
+        const folderMsg = data.folder ? `folder "${data.folder}"` : 'Google Drive';
         setStreamLogs((prev) => [
           ...prev,
-          `[DRIVE] Saved successfully: ${data.webViewLink} (User: ${data.userId})`,
+          `[DRIVE] Exported successfully to ${folderMsg}: ${data.webViewLink}`,
         ]);
       }
     } catch (err: any) {
@@ -579,6 +580,7 @@ export default function App() {
         onClear={handleClearOutput}
         onSaveReport={latestResult ? handleSaveUserReport : undefined}
         isSaved={isReportSaved}
+        isDark={resolvedTheme === 'dark'}
       />
     </div>
   );

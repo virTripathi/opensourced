@@ -33,61 +33,108 @@ export class AgentService {
    * Action dispatcher routing incoming requests to corresponding pipelines
    */
   dispatchAction(action: string, context: GitHubContext, user?: User): Observable<ServerSentEvent> {
-    this.logger.log(`Dispatching action: '${action}' for ${context.owner}/${context.repo}`);
+    return new Observable<ServerSentEvent>((subscriber) => {
+      (async () => {
+        try {
+          this.logger.log(`Dispatching action: '${action}' for ${context.owner}/${context.repo}`);
 
-    // If authenticated user has a valid GitHub token (GitHub App user token or PAT), bind it to MCP Octokit
-    if (user && this.authService) {
-      this.authService.getValidGitHubToken(user.id).then((token) => {
-        if (token) {
-          this.mcpRegistry.setAuthToken(token);
+          // If authenticated user has a valid GitHub token (GitHub App user token or PAT), bind it to MCP Octokit
+          if (user && this.authService) {
+            try {
+              const token = await this.authService.getValidGitHubToken(user.id);
+              if (token) {
+                this.mcpRegistry.setAuthToken(token);
+              }
+            } catch (err: any) {
+              this.logger.warn(`Could not resolve valid GitHub token for user '${user.id}': ${err.message}`);
+            }
+          }
+
+          if (action === 'summarise' || action === 'summarise_repo') {
+            this.summariseRepo(context.owner, context.repo).subscribe({
+              next: (ev) => subscriber.next(ev),
+              error: (err) => subscriber.error(err),
+              complete: () => subscriber.complete(),
+            });
+            return;
+          }
+
+          if (action === 'summarise_feature' || action === 'summarise-feature') {
+            const featureQuery = context.title || context.body || 'Core application flow';
+            this.summariseFeature(context.owner, context.repo, featureQuery).subscribe({
+              next: (ev) => subscriber.next(ev),
+              error: (err) => subscriber.error(err),
+              complete: () => subscriber.complete(),
+            });
+            return;
+          }
+
+          // If issue number is present but body or title is missing, enrich from GitHub API
+          if (context.issueNumber && (!context.body || context.body === 'No issue body provided' || !context.title)) {
+            const issueData = await this.mcpRegistry.getIssue(context.owner, context.repo, context.issueNumber);
+            if (issueData.title && !context.title) context.title = issueData.title;
+            if (issueData.body && (!context.body || context.body === 'No issue body provided')) {
+              context.body = issueData.body;
+            }
+          }
+
+          // Default actions (scan_issue, owasp_check, draft_pr)
+          const sanitizedBody = this.guardrails.wrapUntrusted('issue_body', context.body || 'No issue body provided');
+          let prompt = '';
+          let systemInstruction = '';
+
+          switch (action) {
+            case 'scan_issue':
+              if (!context.issueNumber) {
+                systemInstruction =
+                  'You are an expert open-source onboarding AI. Analyze the repository architecture, invoke detect_ecosystem_and_setup, get_repo_overview, and search_code_symbols to pinpoint the primary entrypoints (file paths, line ranges, exports) and onboarding path.';
+                prompt = `Analyze repository ${context.owner}/${context.repo}:\n\nFind the primary architectural entrypoints (file paths, line ranges, function/class names, module roles) to onboard and contribute to this repository.`;
+              } else {
+                systemInstruction =
+                  'You are an expert open-source onboarding AI. Analyze the issue, invoke search_code_symbols and read_file_slice tools to pinpoint exact files and line numbers where changes are required.';
+                prompt = `Analyze repository ${context.owner}/${context.repo} issue #${context.issueNumber} (${context.title || ''}):\n\n${sanitizedBody}\n\nSearch the codebase and find the concrete entrypoints (file path, line range, function name) to fix this issue.`;
+              }
+              break;
+
+            case 'owasp_check':
+              systemInstruction =
+                'You are an OWASP application security auditor. Audit the identified candidate code areas for OWASP Top 10 vulnerabilities (Injection, Broken Access Control, SSRF, Auth failures). Provide concrete remediation code.';
+              prompt = context.issueNumber
+                ? `Audit candidate fix areas for issue #${context.issueNumber} in ${context.owner}/${context.repo} against OWASP Top 10 vulnerabilities:\n\n${sanitizedBody}`
+                : `Audit repository ${context.owner}/${context.repo} against OWASP Top 10 security vulnerabilities and potential code injection or configuration risks.`;
+              break;
+
+            case 'draft_pr':
+              systemInstruction =
+                'You are an open-source maintainer assistant. Write a clean, professional GitHub PR description with: Summary of changes, fixes issue reference, verification steps, and testing checklist.';
+              prompt = context.issueNumber
+                ? `Draft a pull request description for resolving issue #${context.issueNumber} in ${context.owner}/${context.repo}:\n\n${sanitizedBody}`
+                : `Draft a pull request description template and structure for contributions to ${context.owner}/${context.repo}.`;
+              break;
+
+            default:
+              prompt = `Analyze ${context.owner}/${context.repo}:\n\n${sanitizedBody}`;
+          }
+
+          this.geminiStrategy.executeToolLoop(
+            prompt,
+            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner: context.owner, repo: context.repo }),
+            { systemInstruction }
+          ).subscribe({
+            next: (ev) => subscriber.next(ev),
+            error: (err) => subscriber.error(err),
+            complete: () => subscriber.complete(),
+          });
+        } catch (err: any) {
+          subscriber.next({
+            type: 'PIPELINE_ERROR',
+            message: `Dispatch failed: ${err.message}`,
+            recoverable: false,
+          });
+          subscriber.complete();
         }
-      }).catch((err) => {
-        this.logger.warn(`Could not resolve valid GitHub token for user '${user.id}': ${err.message}`);
-      });
-    }
-
-    if (action === 'summarise' || action === 'summarise_repo') {
-      return this.summariseRepo(context.owner, context.repo);
-    }
-
-    if (action === 'summarise_feature' || action === 'summarise-feature') {
-      const featureQuery = context.title || context.body || 'Core application flow';
-      return this.summariseFeature(context.owner, context.repo, featureQuery);
-    }
-
-    // Default legacy issue actions (scan_issue, owasp_check, draft_pr)
-    const sanitizedBody = this.guardrails.wrapUntrusted('issue_body', context.body || 'No issue body provided');
-    let prompt = '';
-    let systemInstruction = '';
-
-    switch (action) {
-      case 'scan_issue':
-        systemInstruction =
-          'You are an expert open-source onboarding AI. Analyze the issue, invoke search_code_symbols and read_file_slice tools to pinpoint exact files and line numbers where changes are required.';
-        prompt = `Analyze repository ${context.owner}/${context.repo} issue #${context.issueNumber} (${context.title || ''}):\n\n${sanitizedBody}\n\nSearch the codebase and find the concrete entrypoints (file path, line range, function name) to fix this issue.`;
-        break;
-
-      case 'owasp_check':
-        systemInstruction =
-          'You are an OWASP application security auditor. Audit the identified candidate code areas for OWASP Top 10 vulnerabilities (Injection, Broken Access Control, SSRF, Auth failures). Provide concrete remediation code.';
-        prompt = `Audit candidate fix areas for issue #${context.issueNumber} in ${context.owner}/${context.repo} against OWASP Top 10 vulnerabilities:\n\n${sanitizedBody}`;
-        break;
-
-      case 'draft_pr':
-        systemInstruction =
-          'You are an open-source maintainer assistant. Write a clean, professional GitHub PR description with: Summary of changes, fixes issue reference, verification steps, and testing checklist.';
-        prompt = `Draft a pull request description for resolving issue #${context.issueNumber} in ${context.owner}/${context.repo}:\n\n${sanitizedBody}`;
-        break;
-
-      default:
-        prompt = `Analyze ${context.owner}/${context.repo}:\n\n${sanitizedBody}`;
-    }
-
-    return this.geminiStrategy.executeToolLoop(
-      prompt,
-      (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner: context.owner, repo: context.repo }),
-      { systemInstruction }
-    );
+      })();
+    });
   }
 
   /**

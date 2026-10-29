@@ -1,4 +1,4 @@
-import { Controller, Post, Body, MessageEvent, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Sse, MessageEvent, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -25,6 +25,7 @@ export class AgentController {
    * Universal action streaming endpoint
    */
   @Post('stream')
+  @Sse('stream')
   @ApiOperation({
     summary: 'Execute Agentic Action Loop',
     description: 'Universal execution endpoint that runs multi-turn tool calling and streams events (SSE)',
@@ -45,6 +46,7 @@ export class AgentController {
    * Dedicated endpoint: Summarise an entire repository
    */
   @Post('summarise')
+  @Sse('summarise')
   @ApiOperation({
     summary: 'Summarise Entire Repository',
     description:
@@ -70,6 +72,7 @@ export class AgentController {
    * Dedicated endpoint: Summarise a specific feature within a repository
    */
   @Post('summarise-feature')
+  @Sse('summarise-feature')
   @ApiOperation({
     summary: 'Summarise Specific Feature in Repository',
     description:

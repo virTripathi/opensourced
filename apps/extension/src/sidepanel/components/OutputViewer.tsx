@@ -11,6 +11,7 @@ import {
   CheckCircle,
   Bookmark,
 } from 'lucide-react';
+import { MarkdownViewer } from './MarkdownViewer';
 
 interface OutputViewerProps {
   latestResult: string;
@@ -20,6 +21,7 @@ interface OutputViewerProps {
   onClear: () => void;
   onSaveReport?: () => void;
   isSaved?: boolean;
+  isDark?: boolean;
 }
 
 export const OutputViewer: React.FC<OutputViewerProps> = ({
@@ -30,6 +32,7 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
   onClear,
   onSaveReport,
   isSaved = false,
+  isDark = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'report' | 'logs'>('report');
   const [isCopied, setIsCopied] = useState(false);
@@ -304,7 +307,7 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
                         View Analysis in Google Drive
                       </div>
                       <div className="text-[10px] text-[#787774] dark:text-[#9b9a97]">
-                        Exported to drive.file container
+                        Saved in "OpenSourced Research" folder
                       </div>
                     </div>
                   </div>
@@ -313,11 +316,9 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
               </a>
             )}
 
-            {/* Formatted Content */}
+            {/* Formatted Content with GFM & Mermaid Diagram Rendering */}
             {latestResult ? (
-              <div className="space-y-1.5 font-sans leading-relaxed">
-                {renderFormattedMarkdown(latestResult)}
-              </div>
+              <MarkdownViewer content={latestResult} isDark={isDark} />
             ) : (
               <div className="py-8 text-center text-[#787774] dark:text-[#9b9a97] space-y-2">
                 <div className="w-8 h-8 rounded-full bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center mx-auto text-[#787774] dark:text-[#9b9a97]">

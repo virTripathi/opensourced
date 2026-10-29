@@ -173,6 +173,20 @@ export class McpRegistryService {
           required: ['owner', 'repo'],
         },
       },
+      {
+        name: 'get_issue_details',
+        description:
+          'Fetches the title, body description, author, labels, and status of a GitHub issue or pull request.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            owner: { type: SchemaType.STRING, description: 'Repository owner' },
+            repo: { type: SchemaType.STRING, description: 'Repository name' },
+            issueNumber: { type: SchemaType.NUMBER, description: 'Issue or PR number' },
+          },
+          required: ['owner', 'repo', 'issueNumber'],
+        },
+      },
     ];
   }
 
@@ -268,8 +282,9 @@ export class McpRegistryService {
         }
 
         case 'search_code_symbols': {
-          const { owner, repo, query, path } = args;
-          const q = `${query} repo:${owner}/${repo} ${path ? `path:${path}` : ''}`;
+          const { owner, repo, query = '', path } = args;
+          const queryStr = String(query || '').trim();
+          const q = `${queryStr} repo:${owner}/${repo} ${path ? `path:${path}` : ''}`.trim();
           try {
             const res = await this.octokit.rest.search.code({ q });
             return (res.data.items || []).slice(0, 5).map((item) => ({
@@ -281,7 +296,7 @@ export class McpRegistryService {
             // If Code Search rate-limited, search through cached tree paths
             this.logger.warn(`Search code API rate limit or error: ${err.message}. Falling back to tree lookup.`);
             const { treePaths } = await this.fetchRepoTreePaths(owner, repo);
-            const lowerQuery = query.toLowerCase();
+            const lowerQuery = queryStr.toLowerCase();
             const matchedPaths = treePaths
               .filter((p) => p.toLowerCase().includes(lowerQuery))
               .slice(0, 8)
@@ -296,12 +311,59 @@ export class McpRegistryService {
           return this.ecosystemDetector.detectEcosystem(treePaths);
         }
 
+        case 'get_issue_details': {
+          const { owner, repo, issueNumber } = args;
+          const num = Number(issueNumber);
+          if (!num) return { error: 'Valid issueNumber is required' };
+          try {
+            const res = await this.octokit.rest.issues.get({
+              owner,
+              repo,
+              issue_number: num,
+            });
+            return {
+              number: res.data.number,
+              title: res.data.title,
+              state: res.data.state,
+              user: res.data.user?.login,
+              labels: (res.data.labels || []).map((l: any) => (typeof l === 'string' ? l : l.name)),
+              body: this.guardrails.scanAndRedact((res.data.body || '').slice(0, 4000)).sanitizedText,
+            };
+          } catch (err: any) {
+            return { error: `Failed to fetch issue #${num}: ${err.message}` };
+          }
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (err: any) {
       this.logger.error(`Error executing tool ${name}: ${err.message}`);
       return { error: err.message };
+    }
+  }
+
+  /**
+   * Helper to fetch issue title and body for prompt enrichment
+   */
+  async getIssue(
+    owner: string,
+    repo: string,
+    issueNumber: number
+  ): Promise<{ title: string; body: string }> {
+    try {
+      const res = await this.octokit.rest.issues.get({
+        owner,
+        repo,
+        issue_number: issueNumber,
+      });
+      return {
+        title: res.data.title || '',
+        body: res.data.body || '',
+      };
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch issue #${issueNumber} via Octokit: ${err.message}`);
+      return { title: '', body: '' };
     }
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GuardrailsService } from '../guardrails/guardrails.service';
-import { User } from '../auth/user.repository';
+import { User, UserRepository } from '../auth/user.repository';
 
 @Injectable()
 export class DriveService {
@@ -9,8 +9,127 @@ export class DriveService {
 
   constructor(
     private readonly guardrails: GuardrailsService,
-    @Optional() private readonly configService?: ConfigService
+    @Optional() private readonly configService?: ConfigService,
+    @Optional() private readonly userRepo?: UserRepository
   ) {}
+
+  /**
+   * Resolves a valid, active Google access token. If expired, automatically refreshes
+   * using the stored googleRefreshToken and updates the user record.
+   */
+  private async getFreshGoogleToken(user: User): Promise<string | null> {
+    if (!user.googleRefreshToken) {
+      return user.googleAccessToken || null;
+    }
+
+    // Test current token validity first
+    if (user.googleAccessToken) {
+      try {
+        const testRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+          headers: { Authorization: `Bearer ${user.googleAccessToken}` },
+        });
+        if (testRes.ok) {
+          return user.googleAccessToken;
+        }
+      } catch {}
+    }
+
+    // Token expired or invalid; refresh using refresh_token
+    const clientId =
+      this.configService?.get<string>('google.clientId') ||
+      this.configService?.get<string>('GOOGLE_CLIENT_ID') ||
+      process.env.GOOGLE_CLIENT_ID;
+    const clientSecret =
+      this.configService?.get<string>('google.clientSecret') ||
+      this.configService?.get<string>('GOOGLE_CLIENT_SECRET') ||
+      process.env.GOOGLE_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      return user.googleAccessToken || null;
+    }
+
+    try {
+      this.logger.log(`Refreshing expired Google access token for user '${user.id}'...`);
+      const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: user.googleRefreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        if (data.access_token) {
+          this.logger.log(`Successfully obtained fresh Google access token for user '${user.id}'`);
+          // Persist rotated access token to DB
+          if (this.userRepo) {
+            await this.userRepo.upsertUser({
+              id: user.id,
+              googleAccessToken: data.access_token,
+            });
+          }
+          user.googleAccessToken = data.access_token;
+          return data.access_token;
+        }
+      } else {
+        const err = await res.text();
+        this.logger.warn(`Failed to refresh Google token (${res.status}): ${err}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Error during Google token refresh: ${err.message}`);
+    }
+
+    return user.googleAccessToken || null;
+  }
+
+  /**
+   * Retrieves or creates a dedicated 'OpenSourced Research' folder in the user's Drive.
+   */
+  private async getOrCreateFolder(
+    token: string,
+    folderName = 'OpenSourced Research'
+  ): Promise<string | null> {
+    try {
+      const searchRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name)`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (searchRes.ok) {
+        const data = (await searchRes.json()) as any;
+        if (data.files && data.files.length > 0) {
+          return data.files[0].id;
+        }
+      }
+
+      // Create folder if it doesn't exist
+      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+        }),
+      });
+
+      if (createRes.ok) {
+        const newFolder = (await createRes.json()) as any;
+        return newFolder.id;
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not verify/create '${folderName}' folder: ${err.message}`);
+    }
+    return null;
+  }
 
   async exportAnalysis(documentTitle: string, markdownContent: string, user?: User) {
     // 1. Scan for secrets before saving (Guardrail zero-leakage)
@@ -25,9 +144,82 @@ export class DriveService {
       `Exporting document: "${documentTitle}" for user: '${userId}' via ${provider} (drive.file scope)`
     );
 
-    const hasGoogleAuth = Boolean(user?.googleAccessToken || user?.provider === 'google');
+    let effectiveToken: string | null = null;
+    if (user) {
+      effectiveToken = await this.getFreshGoogleToken(user);
+    }
 
-    // Return export status with user link
+    // If user has a valid Google OAuth token with drive.file scope, upload to Google Drive REST API
+    if (effectiveToken) {
+      try {
+        const folderId = await this.getOrCreateFolder(effectiveToken, 'OpenSourced Research');
+
+        const fileName = documentTitle.endsWith('.md') ? documentTitle : `${documentTitle}.md`;
+        const metadata: any = {
+          name: fileName,
+          mimeType: 'text/markdown',
+        };
+        if (folderId) {
+          metadata.parents = [folderId];
+        }
+
+        const boundary = '-------314159265358979323846';
+        const delimiter = `\r\n--${boundary}\r\n`;
+        const closeDelimiter = `\r\n--${boundary}--`;
+
+        const multipartRequestBody =
+          delimiter +
+          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+          JSON.stringify(metadata) +
+          delimiter +
+          'Content-Type: text/markdown; charset=UTF-8\r\n\r\n' +
+          scan.sanitizedText +
+          closeDelimiter;
+
+        const response = await fetch(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,parents',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${effectiveToken}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`,
+            },
+            body: multipartRequestBody,
+          }
+        );
+
+        if (response.ok) {
+          const driveData = (await response.json()) as any;
+          const directFileLink =
+            driveData.webViewLink ||
+            `https://drive.google.com/file/d/${driveData.id}/view?usp=drivesdk`;
+
+          this.logger.log(
+            `Google Drive upload successful. File: "${fileName}" (ID: ${driveData.id}) in folder: "OpenSourced Research" (${folderId})`
+          );
+
+          return {
+            success: true,
+            provider: 'google_drive',
+            fileId: driveData.id,
+            folder: 'OpenSourced Research',
+            folderId: folderId || undefined,
+            webViewLink: directFileLink,
+            title: fileName,
+            userId,
+            googleAuthenticated: true,
+            secretsRedactedCount: scan.detectedSecrets.length,
+          };
+        } else {
+          const errText = await response.text();
+          this.logger.warn(`Google Drive API upload responded with HTTP ${response.status}: ${errText}`);
+        }
+      } catch (err: any) {
+        this.logger.error(`Error uploading to Google Drive: ${err.message}`);
+      }
+    }
+
+    // Default container or guest export response
     return {
       success: true,
       provider,
@@ -35,7 +227,7 @@ export class DriveService {
       webViewLink: 'https://drive.google.com/drive/u/0/my-drive',
       title: documentTitle,
       userId,
-      googleAuthenticated: hasGoogleAuth,
+      googleAuthenticated: Boolean(effectiveToken),
       secretsRedactedCount: scan.detectedSecrets.length,
     };
   }
