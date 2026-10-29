@@ -14,8 +14,8 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "@worksmarter/common": ["../../packages/common/src/index.ts"],
-      "@worksmarter/common/types": ["../../packages/common/src/types/index.ts"]
+      "@opensourced/common": ["../../packages/common/dist/index.d.ts"],
+      "@opensourced/common/types": ["../../packages/common/dist/types/index.d.ts"]
     }
   },
   "include": ["src/**/*"]
