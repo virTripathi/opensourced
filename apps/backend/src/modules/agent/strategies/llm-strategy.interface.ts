@@ -1,5 +1,5 @@
 import { Observable } from 'rxjs';
-import { ServerSentEvent } from '@worksmarter/common/types';
+import { ServerSentEvent } from '@opensourced/common/types';
 
 export interface LlmExecutionOptions {
   apiKey?: string;
