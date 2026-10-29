@@ -1,8 +1,8 @@
 {
-  "name": "worksmarter",
+  "name": "opensourced",
   "private": true,
   "version": "0.1.0",
-  "description": "Worksmarter - Open-Source Onboarding Assistant (Chrome Side Panel + NestJS Orchestrator)",
+  "description": "OpenSourced - Open-Source Onboarding Assistant (Chrome Side Panel + NestJS Orchestrator)",
   "packageManager": "npm@11.19.1",
   "workspaces": [
     "apps/*",

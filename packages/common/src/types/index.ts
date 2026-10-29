@@ -159,6 +159,8 @@ export const PullRequestDraftSchema = z.object({
 
 export type PullRequestDraft = z.infer<typeof PullRequestDraftSchema>;
 
+export * from './summary.js';
+
 // ============================================================================
 // 6. Server-Sent Events (SSE) Protocol
 // ============================================================================
@@ -170,11 +172,16 @@ export type ServerSentEvent =
   | { type: 'TOKEN_DELTA'; text: string }
   | { type: 'CLONE_PROGRESS'; percent: number; statusText: string }
   | { type: 'CLONE_COMPLETE'; targetPath: string; vsCodeUri: string }
+  | { type: 'CLONE_CANCELLED'; message: string; targetPath?: string }
   | { type: 'ENTRYPOINTS_FOUND'; result: IssueAnalysisResult }
   | { type: 'SECURITY_AUDIT_COMPLETE'; result: SecurityAuditReport }
   | { type: 'PR_DRAFT_COMPLETE'; result: PullRequestDraft }
+  | { type: 'CREDENTIAL_SCAN_RESULT'; clean: boolean; flaggedFiles: string[] }
+  | { type: 'TREE_ANALYZED'; ecosystem: string; verifiedEntrypoints: string[]; manifestFound?: string }
+  | { type: 'REPO_SUMMARY_COMPLETE'; result: import('./summary.js').RepoSummaryOutput }
+  | { type: 'FEATURE_SUMMARY_COMPLETE'; result: import('./summary.js').FeatureSummaryOutput }
   | { type: 'PIPELINE_COMPLETE'; action: string; result: unknown }
-  | { type: 'PIPELINE_ERROR'; message: string; recoverable: boolean };
+  | { type: 'PIPELINE_ERROR'; message: string; recoverable: boolean; code?: string; canRetry?: boolean };
 
 // ============================================================================
 // 7. Wispr Flow Audio & Voice Commands
@@ -204,7 +211,27 @@ export interface VoiceCommandMatch {
 export interface UserProfile {
   id: string;
   username: string;
+  displayName?: string;
+  email?: string;
   avatarUrl?: string;
+  isGuest?: boolean;
   githubConnected: boolean;
   googleConnected: boolean;
+  hasPat?: boolean;
+}
+
+export interface UserReport {
+  id: string;
+  userId: string;
+  title: string;
+  repo: string;
+  action: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthSessionResponse {
+  user: UserProfile;
+  token?: string;
 }
