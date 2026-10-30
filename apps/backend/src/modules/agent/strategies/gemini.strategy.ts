@@ -6,6 +6,7 @@ import { ILlmProviderStrategy, LlmExecutionOptions } from './llm-strategy.interf
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { ServerSentEvent } from '@opensourced/common';
 import { AppJsonLoggerService } from '../../logger/app-json-logger.service';
+import { GeminiQuotaSchedulerService } from './gemini-quota-scheduler.service';
 
 import { DEFAULT_GEMINI_MODEL } from '../../../config';
 
@@ -17,8 +18,9 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
   constructor(
     private readonly configService: ConfigService,
     private readonly mcpRegistry: McpRegistryService,
+    private readonly quotaScheduler: GeminiQuotaSchedulerService,
     @Optional() private readonly jsonLogger?: AppJsonLoggerService
-  ) { }
+  ) {}
 
   private getModelName(): string {
     return (
@@ -37,6 +39,68 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
       return null;
     }
     return new GoogleGenerativeAI(key);
+  }
+
+  /**
+   * Robust retry wrapper executing transient operations with bounded exponential backoff and jitter.
+   * Recognizes 429 rate limits, 503 service unavailable, and network timeouts. Never retries non-retryable 4xx errors.
+   */
+  private async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    contextName: string,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let attempt = 0;
+    while (true) {
+      try {
+        return await operation();
+      } catch (err: any) {
+        attempt++;
+        const isRetryable = this.isRetryableError(err);
+        if (!isRetryable || attempt > maxRetries) {
+          throw err;
+        }
+
+        this.quotaScheduler.recordRetry();
+        const baseDelay = this.extractRetryDelayMs(err) || Math.min(8000, 1000 * Math.pow(2, attempt - 1));
+        const jitter = Math.random() * 500;
+        const delayMs = baseDelay + jitter;
+
+        this.logger.warn(
+          `[${contextName}] Transient upstream error (${err.status || err.message}). Attempt ${attempt}/${maxRetries}. Retrying in ${Math.round(delayMs)}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  private isRetryableError(err: any): boolean {
+    const status = err.status || err.statusCode;
+    if (status === 429 || status === 503 || status === 500 || status === 502 || status === 504) {
+      return true;
+    }
+    const msg = (err.message || '').toLowerCase();
+    return (
+      msg.includes('429') ||
+      msg.includes('quota') ||
+      msg.includes('resourceexhausted') ||
+      msg.includes('503') ||
+      msg.includes('unavailable') ||
+      msg.includes('overloaded') ||
+      msg.includes('econnreset') ||
+      msg.includes('etimedout')
+    );
+  }
+
+  private extractRetryDelayMs(err: any): number | undefined {
+    if (err.retryAfterSeconds) return err.retryAfterSeconds * 1000;
+    if (err.message) {
+      const match = err.message.match(/retry\s+in\s+([0-9.]+)\s*s/i) || err.message.match(/retryDelay[:=]\s*([0-9.]+)/i);
+      if (match && match[1]) {
+        return Math.ceil(parseFloat(match[1]) * 1000);
+      }
+    }
+    return undefined;
   }
 
   async generateCompletion(prompt: string, options?: LlmExecutionOptions): Promise<string> {
@@ -58,12 +122,23 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
     try {
       const model = genAI.getGenerativeModel({
         model: modelName,
+        generationConfig: {
+          temperature: options?.temperature ?? 0.1,
+          maxOutputTokens: options?.maxOutputTokens ?? 8192,
+        },
         systemInstruction: options?.systemInstruction,
       });
 
-      const result = await model.generateContent(prompt);
+      const result = await this.quotaScheduler.schedule(
+        () => this.executeWithRetry(() => model.generateContent(prompt), 'generateCompletion'),
+        { signal: options?.signal }
+      );
+
       const text = result.response.text();
       const durationMs = Date.now() - startTime;
+      const usage = result.response.usageMetadata;
+
+      this.quotaScheduler.recordTokenUsage(usage);
 
       this.jsonLogger?.logThirdPartyResponse({
         target: 'GOOGLE_GEMINI',
@@ -71,7 +146,7 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}`,
         statusCode: 200,
         durationMs,
-        responseSnippet: { responseLength: text.length },
+        responseSnippet: { responseLength: text.length, tokens: usage?.totalTokenCount },
       });
 
       return text;
@@ -81,7 +156,7 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
         target: 'GOOGLE_GEMINI',
         method: 'generateContent',
         url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}`,
-        statusCode: 500,
+        statusCode: err.status || 500,
         durationMs,
         responseSnippet: { error: err.message },
       });
@@ -90,7 +165,7 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
   }
 
   /**
-   * Executes a multi-turn tool calling loop targeting structured synthesis
+   * Executes a multi-turn tool calling loop targeting structured synthesis under bounded concurrency and rate limits
    */
   async executeStructuredToolLoop(
     prompt: string,
@@ -113,8 +188,9 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
       model: modelName,
       tools,
       generationConfig: {
-        temperature: 0.1, // Near greedy decoding for low variance
+        temperature: options?.temperature ?? 0.1, // Near greedy decoding for low variance
         topP: 0.95,
+        maxOutputTokens: options?.maxOutputTokens ?? 8192,
       },
       systemInstruction,
     });
@@ -138,7 +214,19 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
       });
 
       try {
-        result = await model.generateContent({ contents });
+        result = await this.quotaScheduler.schedule(
+          () => this.executeWithRetry(() => model.generateContent({ contents }), `ToolLoop-Turn-${turns}`),
+          {
+            signal: options?.signal,
+            onWait: (pos, estSec) => {
+              onEvent({
+                type: 'PIPELINE_START',
+                action: `Quota Scheduler: Turn ${turns} queued (position ${pos}, estimated wait ${estSec}s)`,
+                timestamp: Date.now(),
+              });
+            },
+          }
+        );
       } catch (err: any) {
         const durationMs = Date.now() - turnStartTime;
         this.jsonLogger?.logGeminiResponse({
@@ -149,22 +237,46 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
           error: err.message,
         });
 
-        if (err.message?.includes('429') || err.message?.includes('Quota') || err.status === 429) {
-          this.logger.warn(`Gemini rate limit 429 encountered: ${err.message}`);
+        const isRateLimit = err.message?.includes('429') || err.message?.includes('Quota') || err.status === 429;
+        const isServiceUnavailable = err.status === 503 || err.message?.includes('503') || err.message?.includes('overloaded');
+
+        if (isRateLimit) {
+          const retryAfter = this.quotaScheduler.getRetryAfterSeconds();
+          this.logger.warn(`Gemini rate limit 429 encountered: ${err.message}. Retry-After: ${retryAfter}s`);
           onEvent({
             type: 'PIPELINE_ERROR',
             code: 'RATE_LIMIT_EXCEEDED',
-            message: 'Gemini free-tier rate limit reached (15 RPM). Please retry after 1 minute.',
+            message: `Gemini API rate limit reached. Please retry in ${retryAfter} seconds.`,
             recoverable: true,
           });
-          throw new HttpException('Gemini free tier rate limit reached (15 RPM). Please retry after 1 minute.', HttpStatus.TOO_MANY_REQUESTS);
+          const httpErr = new HttpException(
+            `Gemini rate limit reached. Please retry in ${retryAfter} seconds.`,
+            HttpStatus.TOO_MANY_REQUESTS
+          );
+          (httpErr as any).retryAfter = retryAfter;
+          throw httpErr;
         }
+
+        if (isServiceUnavailable) {
+          this.logger.warn(`Gemini service unavailable (503): ${err.message}`);
+          onEvent({
+            type: 'PIPELINE_ERROR',
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Gemini service is temporarily overloaded. Please retry in a few moments.',
+            recoverable: true,
+          });
+          throw new HttpException('Gemini service temporarily overloaded. Please retry shortly.', HttpStatus.SERVICE_UNAVAILABLE);
+        }
+
         throw err;
       }
 
       const durationMs = Date.now() - turnStartTime;
       const candidate = result.response.candidates?.[0];
       const functionCalls = result.response.functionCalls();
+      const usage = result.response.usageMetadata;
+
+      this.quotaScheduler.recordTokenUsage(usage);
 
       this.jsonLogger?.logGeminiResponse({
         model: modelName,
@@ -173,6 +285,13 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
         statusCode: 200,
         candidateCount: result.response.candidates?.length || 0,
         functionCalls: functionCalls?.map((f) => ({ name: f.name, args: (f.args as Record<string, any>) || {} })),
+        usageMetadata: usage
+          ? {
+              promptTokenCount: usage.promptTokenCount,
+              candidatesTokenCount: usage.candidatesTokenCount,
+              totalTokenCount: usage.totalTokenCount,
+            }
+          : undefined,
         textSnippet: candidate?.content?.parts
           ?.filter((p: any) => typeof p.text === 'string')
           ?.map((p: any) => p.text)
@@ -235,8 +354,8 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
           tool: call.name,
           summary:
             typeof toolResult === 'string'
-              ? toolResult.slice(0, 150)
-              : JSON.stringify(toolResult).slice(0, 150),
+              ? toolResult.slice(0, 200)
+              : JSON.stringify(toolResult).slice(0, 200),
         });
 
         responseParts.push({
@@ -269,19 +388,32 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
     });
 
     try {
-      const finalResult = await model.generateContent({ contents });
+      const finalResult = await this.quotaScheduler.schedule(
+        () => this.executeWithRetry(() => model.generateContent({ contents }), 'FinalSynthesisTurn'),
+        { signal: options?.signal }
+      );
       const finalDurationMs = Date.now() - finalStartTime;
       const finalCandidate = finalResult.response.candidates?.[0];
       const textParts = finalCandidate?.content?.parts
         ?.filter((p: any) => typeof p.text === 'string')
         ?.map((p: any) => p.text) || [];
       const finalText = textParts.join('\n') || 'Analysis completed.';
+      const usage = finalResult.response.usageMetadata;
+
+      this.quotaScheduler.recordTokenUsage(usage);
 
       this.jsonLogger?.logGeminiResponse({
         model: modelName,
         turn: turns + 1,
         durationMs: finalDurationMs,
         statusCode: 200,
+        usageMetadata: usage
+          ? {
+              promptTokenCount: usage.promptTokenCount,
+              candidatesTokenCount: usage.candidatesTokenCount,
+              totalTokenCount: usage.totalTokenCount,
+            }
+          : undefined,
         textSnippet: finalText.slice(0, 300),
       });
 
@@ -296,15 +428,22 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
         error: err.message,
       });
 
-      if (err.message?.includes('429') || err.message?.includes('Quota') || err.status === 429) {
-        this.logger.warn(`Gemini rate limit 429 encountered: ${err.message}`);
+      const isRateLimit = err.message?.includes('429') || err.message?.includes('Quota') || err.status === 429;
+      if (isRateLimit) {
+        const retryAfter = this.quotaScheduler.getRetryAfterSeconds();
+        this.logger.warn(`Gemini rate limit 429 encountered: ${err.message}. Retry-After: ${retryAfter}s`);
         onEvent({
           type: 'PIPELINE_ERROR',
           code: 'RATE_LIMIT_EXCEEDED',
-          message: 'Gemini free-tier rate limit reached (15 RPM). Please retry after 1 minute.',
+          message: `Gemini API rate limit reached. Please retry in ${retryAfter} seconds.`,
           recoverable: true,
         });
-        throw new HttpException('Gemini free tier rate limit reached (15 RPM). Please retry after 1 minute.', HttpStatus.TOO_MANY_REQUESTS);
+        const httpErr = new HttpException(
+          `Gemini rate limit reached. Please retry in ${retryAfter} seconds.`,
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+        (httpErr as any).retryAfter = retryAfter;
+        throw httpErr;
       }
       throw err;
     }
@@ -340,8 +479,9 @@ export class GeminiProviderStrategy implements ILlmProviderStrategy {
         this.logger.error(`Error in Gemini tool loop: ${err.message}`);
         subject.next({
           type: 'PIPELINE_ERROR',
-          message: `Gemini Tool Loop Error: ${err.message}`,
-          recoverable: true,
+          code: err.status === 429 ? 'RATE_LIMIT_EXCEEDED' : err.status === 503 ? 'SERVICE_UNAVAILABLE' : 'INTERNAL_ERROR',
+          message: `Gemini Pipeline Error: ${err.message}`,
+          recoverable: err.status === 429 || err.status === 503,
         });
         subject.complete();
       }

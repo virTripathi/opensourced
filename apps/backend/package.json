@@ -8,7 +8,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "test": "ts-node src/modules/auth/auth-idor.spec.ts && ts-node src/modules/logger/logger-and-idempotency.spec.ts && ts-node src/modules/database/database-strategy.spec.ts",
+    "test": "ts-node src/modules/auth/auth-idor.spec.ts && ts-node src/modules/logger/logger-and-idempotency.spec.ts && ts-node src/modules/database/database-strategy.spec.ts && ts-node src/modules/agent/agent-concurrency-and-quota.spec.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",

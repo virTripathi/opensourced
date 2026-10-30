@@ -359,11 +359,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                 <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none text-[11px]">
                   <button
                     onClick={() => setSelectedRepoFilter('all')}
-                    className={`px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap transition-colors ${
-                      selectedRepoFilter === 'all'
-                        ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
-                        : 'bg-[#f7f7f5] dark:bg-[#202020] text-[#787774] dark:text-[#9b9a97] hover:text-[#37352f] dark:hover:text-[#ebebeb] border border-[#e9e9e7] dark:border-[#2e2e2e]'
-                    }`}
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap transition-colors ${selectedRepoFilter === 'all'
+                      ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
+                      : 'bg-[#f7f7f5] dark:bg-[#202020] text-[#787774] dark:text-[#9b9a97] hover:text-[#37352f] dark:hover:text-[#ebebeb] border border-[#e9e9e7] dark:border-[#2e2e2e]'
+                      }`}
                   >
                     All Repos ({allReportsPool.length})
                   </button>
@@ -374,11 +373,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                       <button
                         key={r}
                         onClick={() => setSelectedRepoFilter(r)}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap transition-colors ${
-                          isSelected
-                            ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
-                            : 'bg-[#f7f7f5] dark:bg-[#202020] text-[#787774] dark:text-[#9b9a97] hover:text-[#37352f] dark:hover:text-[#ebebeb] border border-[#e9e9e7] dark:border-[#2e2e2e]'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap transition-colors ${isSelected
+                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
+                          : 'bg-[#f7f7f5] dark:bg-[#202020] text-[#787774] dark:text-[#9b9a97] hover:text-[#37352f] dark:hover:text-[#ebebeb] border border-[#e9e9e7] dark:border-[#2e2e2e]'
+                          }`}
                       >
                         {r} ({count})
                       </button>
@@ -612,9 +610,8 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
               </span>
               <Search className="w-3.5 h-3.5 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors" />
               <ChevronDown
-                className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                  isSearchDropdownOpen ? 'rotate-180' : ''
-                }`}
+                className={`w-3.5 h-3.5 transition-transform duration-150 ${isSearchDropdownOpen ? 'rotate-180' : ''
+                  }`}
               />
             </div>
           </button>
@@ -656,11 +653,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                       <button
                         type="button"
                         onClick={() => setScopeFilter('current')}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                          scopeFilter === 'current'
-                            ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
-                            : 'text-[#787774] dark:text-[#9b9a97] hover:bg-[#efefed] dark:hover:bg-[#282828]'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${scopeFilter === 'current'
+                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
+                          : 'text-[#787774] dark:text-[#9b9a97] hover:bg-[#efefed] dark:hover:bg-[#282828]'
+                          }`}
                       >
                         This Repo ({currentRepoReports.length})
                       </button>
@@ -668,11 +664,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                         <button
                           type="button"
                           onClick={() => setScopeFilter('all')}
-                          className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                            scopeFilter === 'all'
-                              ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
-                              : 'text-[#787774] dark:text-[#9b9a97] hover:bg-[#efefed] dark:hover:bg-[#282828]'
-                          }`}
+                          className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${scopeFilter === 'all'
+                            ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold shadow-2xs'
+                            : 'text-[#787774] dark:text-[#9b9a97] hover:bg-[#efefed] dark:hover:bg-[#282828]'
+                            }`}
                         >
                           All Repos ({allReportsPool.length})
                         </button>
@@ -699,11 +694,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                             setIsSearchDropdownOpen(false);
                             setSearchQuery('');
                           }}
-                          className={`w-full text-left p-2 rounded-md flex items-start justify-between gap-2 transition-colors ${
-                            isSelected
-                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
-                              : 'hover:bg-[#f5f5f3] dark:hover:bg-[#262626] border border-transparent'
-                          }`}
+                          className={`w-full text-left p-2 rounded-md flex items-start justify-between gap-2 transition-colors ${isSelected
+                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
+                            : 'hover:bg-[#f5f5f3] dark:hover:bg-[#262626] border border-transparent'
+                            }`}
                         >
                           <div className="flex items-start gap-2 min-w-0">
                             <div className="mt-0.5 flex-shrink-0">
@@ -804,11 +798,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
             <span className="text-[#787774] dark:text-[#9b9a97] font-medium text-[10px]">Versions:</span>
             <button
               onClick={() => setSelectedVersion(null)}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                isViewingLatest
-                  ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
-                  : 'bg-[#efefed] dark:bg-[#282828] text-[#555] dark:text-[#aaa] hover:bg-[#e5e5e2]'
-              }`}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${isViewingLatest
+                ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
+                : 'bg-[#efefed] dark:bg-[#282828] text-[#555] dark:text-[#aaa] hover:bg-[#e5e5e2]'
+                }`}
             >
               v{activeReport.version || 1} (Latest)
             </button>
@@ -821,11 +814,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                   <button
                     key={snapshot.version}
                     onClick={() => setSelectedVersion(snapshot.version)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                      isSelected
-                        ? 'bg-amber-600 text-white font-semibold shadow-2xs'
-                        : 'bg-[#efefed] dark:bg-[#282828] text-[#555] dark:text-[#aaa] hover:bg-[#e5e5e2]'
-                    }`}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${isSelected
+                      ? 'bg-amber-600 text-white font-semibold shadow-2xs'
+                      : 'bg-[#efefed] dark:bg-[#282828] text-[#555] dark:text-[#aaa] hover:bg-[#e5e5e2]'
+                      }`}
                   >
                     v{snapshot.version}
                   </button>
@@ -841,27 +833,6 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
               Back to Latest (v{activeReport.version || 1})
             </button>
           )}
-        </div>
-      )}
-
-      {/* 5. Table of Contents Quick-Jump Pills (If headings exist) */}
-      {tableOfContents.length > 0 && (
-        <div className="px-4 py-1.5 bg-[#f7f7f5]/60 dark:bg-[#202020]/60 border-b border-[#e9e9e7]/60 dark:border-[#2e2e2e]/60 flex items-center gap-1.5 overflow-x-auto text-[10px] text-[#787774] dark:text-[#9b9a97] flex-shrink-0 scrollbar-none">
-          <span className="font-semibold uppercase tracking-wider text-[9px] text-[#9b9a97]">Jump to:</span>
-          {tableOfContents.map((h, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                const elem = document.getElementById(h.id);
-                if (elem) {
-                  elem.scrollIntoView({ behavior: 'smooth' });
-                }
-              }}
-              className="px-2 py-0.5 rounded bg-white dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#383838] hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 whitespace-nowrap transition-colors"
-            >
-              {h.text}
-            </button>
-          ))}
         </div>
       )}
 

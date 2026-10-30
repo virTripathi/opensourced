@@ -264,7 +264,7 @@ export class McpRegistryService {
             const readmeRes = await octokit.rest.repos.getReadme({ owner, repo });
             if ('content' in readmeRes.data && typeof readmeRes.data.content === 'string') {
               const decoded = Buffer.from(readmeRes.data.content, 'base64').toString('utf-8');
-              readmeSnippet = this.guardrails.scanAndRedact(decoded.slice(0, 3000)).sanitizedText;
+              readmeSnippet = this.guardrails.scanAndRedact(decoded.slice(0, 12000)).sanitizedText;
             }
           } catch (err: any) {
             const status = err.status || err.statusCode;
@@ -305,12 +305,12 @@ export class McpRegistryService {
 
           return {
             totalFiles: treePaths.length,
-            visibleArchitecturalFiles: filtered.slice(0, 100),
+            visibleArchitecturalFiles: filtered.slice(0, 250),
           };
         }
 
         case 'read_file_slice': {
-          const { owner, repo, path, startLine = 1, endLine = 100 } = args;
+          const { owner, repo, path, startLine = 1, endLine = 150 } = args;
 
           // Security check: Block sensitive files from being read (exempts template files)
           if (this.guardrails.isBlockedSensitivePath(path)) {
@@ -329,7 +329,9 @@ export class McpRegistryService {
             const lines = sanitized.split('\n');
 
             const start = Math.max(1, startLine) - 1;
-            const end = Math.min(lines.length, Math.max(startLine, endLine));
+            const requestedEnd = Math.max(startLine, endLine);
+            const clampedEnd = Math.min(start + 300, requestedEnd);
+            const end = Math.min(lines.length, clampedEnd);
 
             const sliced = lines
               .slice(start, end)
@@ -347,7 +349,7 @@ export class McpRegistryService {
           const q = `${queryStr} repo:${owner}/${repo} ${path ? `path:${path}` : ''}`.trim();
           try {
             const res = await octokit.rest.search.code({ q });
-            return (res.data.items || []).slice(0, 5).map((item) => ({
+            return (res.data.items || []).slice(0, 10).map((item) => ({
               name: item.name,
               path: item.path,
               url: item.html_url,
@@ -358,7 +360,7 @@ export class McpRegistryService {
             const lowerQuery = queryStr.toLowerCase();
             const matchedPaths = treePaths
               .filter((p) => p.toLowerCase().includes(lowerQuery))
-              .slice(0, 8)
+              .slice(0, 15)
               .map((p) => ({ path: p, reason: 'Matched in file tree hierarchy (Code Search rate-limited)' }));
             return matchedPaths.length > 0
               ? matchedPaths
@@ -388,7 +390,7 @@ export class McpRegistryService {
               state: res.data.state,
               user: res.data.user?.login,
               labels: (res.data.labels || []).map((l: any) => (typeof l === 'string' ? l : l.name)),
-              body: this.guardrails.scanAndRedact((res.data.body || '').slice(0, 4000)).sanitizedText,
+              body: this.guardrails.scanAndRedact((res.data.body || '').slice(0, 8000)).sanitizedText,
             };
           } catch (err: any) {
             return { error: `Failed to fetch issue #${num}: ${err.message}` };
@@ -458,7 +460,7 @@ export class McpRegistryService {
       return (res.data || []).map((c) => ({
         id: c.id,
         author: c.user?.login || 'unknown',
-        body: this.guardrails.scanAndRedact((c.body || '').slice(0, 1500)).sanitizedText,
+        body: this.guardrails.scanAndRedact((c.body || '').slice(0, 3000)).sanitizedText,
         createdAt: c.created_at,
       }));
     } catch (err: any) {
@@ -491,5 +493,42 @@ export class McpRegistryService {
       this.logger.warn(`Could not read manifest '${manifestFile}': ${err.message}`);
       return null;
     }
+  }
+
+  /**
+   * Directly fetches repository metadata and README excerpt (up to 12KB) in one call.
+   * Enables prompt context enrichment so models do not waste a Gemini turn calling get_repo_overview.
+   */
+  async getRepoOverview(
+    owner: string,
+    repo: string,
+    tokenOverride?: string
+  ): Promise<{
+    fullName: string;
+    description: string;
+    language?: string;
+    stars: number;
+    readmeExcerpt: string;
+  }> {
+    const octokit = this.getOctokit(tokenOverride);
+    const repoDetails = await octokit.rest.repos.get({ owner, repo });
+    let readmeExcerpt = 'No README.md found.';
+    try {
+      const readmeRes = await octokit.rest.repos.getReadme({ owner, repo });
+      if ('content' in readmeRes.data && typeof readmeRes.data.content === 'string') {
+        const decoded = Buffer.from(readmeRes.data.content, 'base64').toString('utf-8');
+        readmeExcerpt = this.guardrails.scanAndRedact(decoded.slice(0, 12000)).sanitizedText;
+      }
+    } catch {
+      // README 404 or inaccessible, continue
+    }
+
+    return {
+      fullName: repoDetails.data.full_name,
+      description: repoDetails.data.description || 'No description provided.',
+      language: repoDetails.data.language || undefined,
+      stars: repoDetails.data.stargazers_count,
+      readmeExcerpt,
+    };
   }
 }

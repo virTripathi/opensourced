@@ -4,7 +4,9 @@ import { ServerSentEvent } from '@opensourced/common/types';
 export interface LlmExecutionOptions {
   apiKey?: string;
   temperature?: number;
+  maxOutputTokens?: number;
   systemInstruction?: string;
+  signal?: AbortSignal;
 }
 
 export interface ILlmProviderStrategy {

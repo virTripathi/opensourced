@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Observable, Subject } from 'rxjs';
+import { Observable } from 'rxjs';
 import { GeminiProviderStrategy } from './strategies/gemini.strategy';
 import { McpRegistryService } from '../mcp/mcp-registry.service';
 import { EcosystemDetectorService } from '../mcp/ecosystem-detector.service';
@@ -27,31 +27,31 @@ export class AgentService {
     private readonly groundingValidator: GroundingValidatorService,
     private readonly summaryCache: SummaryCacheService,
     @Optional() private readonly authService?: AuthService
-  ) { }
+  ) {}
 
   /**
    * Action dispatcher routing incoming requests to corresponding pipelines
    */
   dispatchAction(action: string, context: GitHubContext, user?: User): Observable<ServerSentEvent> {
     return new Observable<ServerSentEvent>((subscriber) => {
+      const abortController = new AbortController();
+
       (async () => {
         try {
           this.logger.log(`Dispatching action: '${action}' for ${context.owner}/${context.repo}`);
 
-          // If authenticated user has a valid GitHub token (GitHub App user token or PAT), bind it to MCP Octokit
+          // Request-scoped token resolution: avoids singleton mutation and cross-tenant leakage
+          let userToken: string | undefined;
           if (user && this.authService) {
             try {
-              const token = await this.authService.getValidGitHubToken(user.id);
-              if (token) {
-                this.mcpRegistry.setAuthToken(token);
-              }
+              userToken = (await this.authService.getValidGitHubToken(user.id)) || undefined;
             } catch (err: any) {
               this.logger.warn(`Could not resolve valid GitHub token for user '${user.id}': ${err.message}`);
             }
           }
 
           if (action === 'summarise' || action === 'summarise_repo') {
-            this.summariseRepo(context.owner, context.repo).subscribe({
+            this.summariseRepo(context.owner, context.repo, undefined, undefined, userToken).subscribe({
               next: (ev) => subscriber.next(ev),
               error: (err) => subscriber.error(err),
               complete: () => subscriber.complete(),
@@ -61,7 +61,7 @@ export class AgentService {
 
           if (action === 'summarise_feature' || action === 'summarise-feature') {
             const featureQuery = context.title || context.body || 'Core application flow';
-            this.summariseFeature(context.owner, context.repo, featureQuery).subscribe({
+            this.summariseFeature(context.owner, context.repo, featureQuery, undefined, undefined, userToken).subscribe({
               next: (ev) => subscriber.next(ev),
               error: (err) => subscriber.error(err),
               complete: () => subscriber.complete(),
@@ -73,7 +73,7 @@ export class AgentService {
           let issueBodyWithDiscussion = context.body || 'No issue body provided';
           if (context.issueNumber) {
             if (!context.body || context.body === 'No issue body provided' || !context.title) {
-              const issueData = await this.mcpRegistry.getIssue(context.owner, context.repo, context.issueNumber);
+              const issueData = await this.mcpRegistry.getIssue(context.owner, context.repo, context.issueNumber, userToken);
               if (issueData.title && !context.title) context.title = issueData.title;
               if (issueData.body && (!context.body || context.body === 'No issue body provided')) {
                 context.body = issueData.body;
@@ -83,7 +83,7 @@ export class AgentService {
 
             // Eagerly fetch discussion comments so analysis is grounded in real community/maintainer consensus
             try {
-              const comments = await this.mcpRegistry.getIssueComments(context.owner, context.repo, context.issueNumber, 8);
+              const comments = await this.mcpRegistry.getIssueComments(context.owner, context.repo, context.issueNumber, 8, userToken);
               if (comments.length > 0) {
                 const discussionFormatted = comments
                   .map((c, idx) => `[Comment #${idx + 1} by @${c.author}]:\n${c.body}`)
@@ -136,8 +136,8 @@ export class AgentService {
 
           this.geminiStrategy.executeToolLoop(
             prompt,
-            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner: context.owner, repo: context.repo }),
-            { systemInstruction }
+            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner: context.owner, repo: context.repo }, userToken),
+            { systemInstruction, signal: abortController.signal, maxOutputTokens: 8192 }
           ).subscribe({
             next: (ev) => subscriber.next(ev),
             error: (err) => subscriber.error(err),
@@ -152,20 +152,33 @@ export class AgentService {
           subscriber.complete();
         }
       })();
+
+      // Teardown: cancel in-flight or queued work when client disconnects
+      return () => {
+        abortController.abort();
+      };
     });
   }
 
   /**
-   * Action 1: Summarise a Full Repository
+   * Action 1: Summarise a Full Repository with task-appropriate context and bounded model calls
    */
-  summariseRepo(owner: string, repo: string, branch?: string, focusAreas?: string[]): Observable<ServerSentEvent> {
+  summariseRepo(
+    owner: string,
+    repo: string,
+    branch?: string,
+    focusAreas?: string[],
+    tokenOverride?: string
+  ): Observable<ServerSentEvent> {
     return new Observable<ServerSentEvent>((subscriber) => {
+      const abortController = new AbortController();
+
       (async () => {
         try {
           subscriber.next({ type: 'PIPELINE_START', action: 'summarise', timestamp: Date.now() });
 
           // Step 1: Ingest Git Tree
-          const { treePaths, commitSha } = await this.mcpRegistry.fetchRepoTreePaths(owner, repo, branch);
+          const { treePaths, commitSha } = await this.mcpRegistry.fetchRepoTreePaths(owner, repo, branch, tokenOverride);
 
           // Step 2: Credential Leak Scan on Repo Tree
           const secretScan = this.guardrails.scanRepoTreeForSecrets(treePaths);
@@ -188,12 +201,14 @@ export class AgentService {
 
           // Step 3b: Inspect Manifest for Suspicious Lifecycle Script Hooks
           let suspiciousScripts: string[] = [];
+          let manifestSnippet = '';
           if (eco.manifestFile) {
             try {
-              const manifestContent = await this.mcpRegistry.getManifestContent(owner, repo, eco.manifestFile);
+              const manifestContent = await this.mcpRegistry.getManifestContent(owner, repo, eco.manifestFile, tokenOverride);
               if (manifestContent) {
                 const scriptCheck = this.guardrails.scanManifestForSuspiciousScripts(manifestContent);
                 suspiciousScripts = scriptCheck.findings;
+                manifestSnippet = manifestContent.slice(0, 2000);
               }
             } catch (err: any) {
               this.logger.warn(`Could not audit manifest '${eco.manifestFile}': ${err.message}`);
@@ -207,7 +222,7 @@ export class AgentService {
             manifestFound: eco.manifestFile,
           });
 
-          // Step 4: Check SHA-keyed cache (deterministic reuse)
+          // Step 4: Check SHA-keyed cache (deterministic reuse - 0 LLM calls!)
           const cacheKey = this.summaryCache.buildKey(owner, repo, commitSha, 'summarise');
           const cached = this.summaryCache.get<RepoSummaryOutput>(cacheKey);
           if (cached) {
@@ -221,7 +236,24 @@ export class AgentService {
             return;
           }
 
-          // Step 5: Construct Grounded Analysis Prompt
+          // Step 4b: Eagerly fetch repository overview & README (eliminating 2 redundant LLM turns!)
+          let readmeExcerpt = 'No README available.';
+          let repoMetaSnippet = '';
+          try {
+            const overview = await this.mcpRegistry.getRepoOverview(owner, repo, tokenOverride);
+            readmeExcerpt = overview.readmeExcerpt;
+            repoMetaSnippet = `Repository: ${overview.fullName}\nDescription: ${overview.description}\nStars: ${overview.stars}\nPrimary Language: ${overview.language || eco.displayName}`;
+          } catch (err: any) {
+            this.logger.warn(`Could not pre-fetch repo overview for ${owner}/${repo}: ${err.message}`);
+          }
+
+          // Step 4c: Filter key architectural paths (up to 150 files) to include directly in prompt
+          const architecturalTree = treePaths
+            .filter((p) => !/(^|\/)(node_modules|\.git|\.turbo|\.next|dist|build|vendor|target|__pycache__|\.cache|\.venv|venv)($|\/)/i.test(p))
+            .filter((p) => !/\.(png|jpe?g|gif|svg|ico|webp|mp4|webm|zip|tar|gz|woff2?|eot|ttf|otf|pdf|bin)$/i.test(p))
+            .slice(0, 150);
+
+          // Step 5: Construct Grounded Analysis Prompt with useful token context
           const focusPrompt = focusAreas?.length ? `Focus specifically on: ${focusAreas.join(', ')}.` : '';
           const systemInstruction = `You are OpenSourced, an elite open-source codebase analyst.
 Your task is to analyze repository ${owner}/${repo} and output ONLY a valid JSON object matching the RepoSummaryOutput schema.
@@ -236,6 +268,7 @@ Requirements:
 Format your entire response as a pure JSON object without markdown fences.`;
 
           const prompt = `Perform a comprehensive technical summarisation and authenticity evaluation of ${owner}/${repo}.
+
 Grounding Facts:
 - Detected Ecosystem: ${eco.displayName}
 - Manifest: ${eco.manifestFile || 'None'}
@@ -247,13 +280,22 @@ Grounding Facts:
 - Sample Env File: ${eco.sampleEnvFile || 'None'}
 ${focusPrompt}
 
-Call the 'get_repo_overview' tool to inspect the README and metadata, then output the structured JSON summary.`;
+${repoMetaSnippet ? `Metadata:\n${repoMetaSnippet}\n` : ''}
+Key Architectural File Tree (first ${architecturalTree.length} files):
+${architecturalTree.join('\n')}
+
+${manifestSnippet ? `Manifest Excerpt (${eco.manifestFile}):\n${manifestSnippet}\n` : ''}
+README Excerpt:
+${readmeExcerpt}
+
+Based on these grounding facts, README, and codebase structure, generate the structured JSON summary.
+(You may optionally call 'read_file_slice' if you need deeper line-level verification of entrypoints).`;
 
           const rawOutput = await this.geminiStrategy.executeStructuredToolLoop(
             prompt,
-            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner, repo }),
+            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner, repo }, tokenOverride),
             (event) => subscriber.next(event),
-            { systemInstruction }
+            { systemInstruction, signal: abortController.signal, maxOutputTokens: 8192 }
           );
 
           // Step 6: Parse and Validate Structured Output
@@ -265,7 +307,10 @@ Call the 'get_repo_overview' tool to inspect the README and metadata, then outpu
             this.logger.warn(`Failed to parse model output as JSON: ${err.message}. Attempting 1-turn repair prompt.`);
             try {
               const repairPrompt = `Fix the following invalid JSON so that it strictly parses with JSON.parse. Output ONLY the valid JSON, no markdown fences or prose:\n\n${cleanJson}`;
-              const repaired = await this.geminiStrategy.generateCompletion(repairPrompt);
+              const repaired = await this.geminiStrategy.generateCompletion(repairPrompt, {
+                signal: abortController.signal,
+                maxOutputTokens: 8192,
+              });
               const cleanRepaired = repaired.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
               parsed = JSON.parse(cleanRepaired);
             } catch (repairErr: any) {
@@ -364,6 +409,11 @@ Call the 'get_repo_overview' tool to inspect the README and metadata, then outpu
           subscriber.complete();
         }
       })();
+
+      // Teardown
+      return () => {
+        abortController.abort();
+      };
     });
   }
 
@@ -375,17 +425,20 @@ Call the 'get_repo_overview' tool to inspect the README and metadata, then outpu
     repo: string,
     featureQuery: string,
     branch?: string,
-    hintPaths?: string[]
+    hintPaths?: string[],
+    tokenOverride?: string
   ): Observable<ServerSentEvent> {
     return new Observable<ServerSentEvent>((subscriber) => {
+      const abortController = new AbortController();
+
       (async () => {
         try {
           subscriber.next({ type: 'PIPELINE_START', action: 'summarise-feature', timestamp: Date.now() });
 
-          const { treePaths, commitSha } = await this.mcpRegistry.fetchRepoTreePaths(owner, repo, branch);
+          const { treePaths, commitSha } = await this.mcpRegistry.fetchRepoTreePaths(owner, repo, branch, tokenOverride);
           const eco = this.ecosystemDetector.detectEcosystem(treePaths);
 
-          // Check SHA-keyed cache
+          // Check SHA-keyed cache (0 LLM calls!)
           const cacheKey = this.summaryCache.buildKey(owner, repo, commitSha, 'summarise-feature', featureQuery);
           const cached = this.summaryCache.get<FeatureSummaryOutput>(cacheKey);
           if (cached) {
@@ -398,6 +451,20 @@ Call the 'get_repo_overview' tool to inspect the README and metadata, then outpu
             subscriber.complete();
             return;
           }
+
+          // Pre-filter candidate files from git tree matching query keywords to reduce exploratory tool turns
+          const queryWords = featureQuery
+            .toLowerCase()
+            .split(/[\s,._/-]+/)
+            .filter((w) => w.length > 2 && !['and', 'the', 'for', 'with', 'what', 'how', 'this', 'that', 'from'].includes(w));
+          const candidateFiles = treePaths
+            .filter((p) => queryWords.some((qw) => p.toLowerCase().includes(qw)))
+            .slice(0, 20);
+
+          const candidateHints = [
+            ...(hintPaths || []),
+            ...(candidateFiles.length > 0 ? candidateFiles : []),
+          ];
 
           const systemInstruction = `You are OpenSourced, an open-source technical intelligence engine.
 Analyze repository ${owner}/${repo} specifically for the requested feature.
@@ -413,18 +480,18 @@ Focus 100% on the feature implementation details:
 
 Output ONLY a valid JSON object matching the FeatureSummaryOutput schema without markdown fences.`;
 
-          const hintPrompt = hintPaths?.length ? `Candidate paths to inspect: ${hintPaths.join(', ')}.` : '';
+          const hintPrompt = candidateHints.length ? `Candidate paths to inspect:\n${candidateHints.join('\n')}` : '';
           const prompt = `Analyze feature: "${featureQuery}" in repository ${owner}/${repo}.
 Ecosystem: ${eco.displayName}
 ${hintPrompt}
 
-Search for relevant symbols and inspect file slices, then output the structured feature JSON.`;
+Inspect candidate files or search for relevant symbols, then output the structured feature JSON.`;
 
           const rawOutput = await this.geminiStrategy.executeStructuredToolLoop(
             prompt,
-            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner, repo }),
+            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner, repo }, tokenOverride),
             (event) => subscriber.next(event),
-            { systemInstruction }
+            { systemInstruction, signal: abortController.signal, maxOutputTokens: 8192 }
           );
 
           let parsed: FeatureSummaryOutput;
@@ -435,7 +502,10 @@ Search for relevant symbols and inspect file slices, then output the structured 
             this.logger.warn(`Failed to parse feature JSON: ${err.message}. Attempting 1-turn repair prompt.`);
             try {
               const repairPrompt = `Fix the following invalid JSON so that it strictly parses with JSON.parse. Output ONLY the valid JSON, no markdown fences or prose:\n\n${cleanJson}`;
-              const repaired = await this.geminiStrategy.generateCompletion(repairPrompt);
+              const repaired = await this.geminiStrategy.generateCompletion(repairPrompt, {
+                signal: abortController.signal,
+                maxOutputTokens: 8192,
+              });
               const cleanRepaired = repaired.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
               parsed = JSON.parse(cleanRepaired);
             } catch (repairErr: any) {
@@ -463,6 +533,11 @@ Search for relevant symbols and inspect file slices, then output the structured 
           subscriber.complete();
         }
       })();
+
+      // Teardown
+      return () => {
+        abortController.abort();
+      };
     });
   }
 }

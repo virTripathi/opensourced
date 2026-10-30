@@ -295,6 +295,11 @@ export class AppJsonLoggerService implements LoggerService, OnApplicationShutdow
     candidateCount?: number;
     functionCalls?: Array<{ name: string; args: Record<string, any> }>;
     textSnippet?: string;
+    usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+      totalTokenCount?: number;
+    };
     error?: string;
   }) {
     this.writeEntry({
@@ -315,6 +320,7 @@ export class AppJsonLoggerService implements LoggerService, OnApplicationShutdow
         candidateCount: data.candidateCount,
         functionCalls: data.functionCalls,
         textSnippet: data.textSnippet,
+        usageMetadata: data.usageMetadata,
         error: data.error,
       },
       error: data.error ? { message: data.error } : undefined,
