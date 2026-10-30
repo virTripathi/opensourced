@@ -15,6 +15,182 @@ import {
   FeatureSummaryOutput,
 } from '@opensourced/common';
 
+/**
+ * Defensive normalizer ensuring raw LLM outputs (whether camelCase or snake_case)
+ * conform strictly to the FeatureSummaryOutput interface.
+ */
+export function normalizeFeatureSummary(raw: any): FeatureSummaryOutput {
+  const featureName = raw?.featureName || raw?.feature_name || raw?.name || raw?.title || 'Target Feature';
+  const summary = raw?.summary || raw?.feature_summary || raw?.overview || raw?.description || '';
+
+  const rawEntrypoints = Array.isArray(raw?.entrypoints)
+    ? raw.entrypoints
+    : Array.isArray(raw?.verifiedEntrypoints)
+    ? raw.verifiedEntrypoints
+    : [];
+
+  const entrypoints = rawEntrypoints.map((ep: any) => ({
+    filePath: ep?.filePath || ep?.file_path || ep?.path || '',
+    lineRange: typeof ep?.lineRange === 'string' ? ep.lineRange : typeof ep?.line_range === 'string' ? ep.line_range : undefined,
+    symbolName: ep?.symbolName || ep?.symbol_name || ep?.name || 'handler',
+    symbolType: (['function', 'class', 'route_handler', 'component', 'middleware', 'struct', 'trait'].includes(ep?.symbolType || ep?.symbol_type)
+      ? (ep?.symbolType || ep?.symbol_type)
+      : 'function') as any,
+    roleInFeature: ep?.roleInFeature || ep?.role_in_feature || ep?.role || ep?.description || 'Core logic entrypoint',
+  }));
+
+  const mermaidDiagram = raw?.mermaidDiagram || raw?.mermaid_diagram || raw?.diagram || raw?.architectureDiagram || '';
+
+  const rawDeps = raw?.dependencies || {};
+  const dependencies = {
+    internalModules: Array.isArray(rawDeps?.internalModules)
+      ? rawDeps.internalModules
+      : Array.isArray(rawDeps?.internal_modules)
+      ? rawDeps.internal_modules
+      : Array.isArray(rawDeps?.internal)
+      ? rawDeps.internal
+      : [],
+    externalPackages: Array.isArray(rawDeps?.externalPackages)
+      ? rawDeps.externalPackages
+      : Array.isArray(rawDeps?.external_packages)
+      ? rawDeps.external_packages
+      : Array.isArray(rawDeps?.external)
+      ? rawDeps.external
+      : [],
+    databaseTablesOrEntities: Array.isArray(rawDeps?.databaseTablesOrEntities)
+      ? rawDeps.databaseTablesOrEntities
+      : Array.isArray(rawDeps?.database_tables_or_entities)
+      ? rawDeps.database_tables_or_entities
+      : undefined,
+  };
+
+  const rawSec = raw?.securityAssessment || raw?.security_assessment || {};
+  const rawFindings = Array.isArray(rawSec?.findings) ? rawSec.findings : [];
+  const findings = rawFindings.map((f: any) => ({
+    risk: f?.risk || f?.category || f?.name || 'Security Consideration',
+    severity: (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(f?.severity?.toUpperCase()) ? f.severity.toUpperCase() : 'MEDIUM') as any,
+    file: f?.file || f?.fileOrLocation || f?.location || 'codebase',
+    suggestedFix: f?.suggestedFix || f?.suggested_fix || f?.remediation || 'Follow safe coding conventions.',
+  }));
+
+  const rawVerify = raw?.localVerification || raw?.local_verification || {};
+  const localVerification = {
+    existingTestFiles: Array.isArray(rawVerify?.existingTestFiles)
+      ? rawVerify.existingTestFiles
+      : Array.isArray(rawVerify?.existing_test_files)
+      ? rawVerify.existing_test_files
+      : [],
+    howToTriggerLocally: rawVerify?.howToTriggerLocally || rawVerify?.how_to_trigger_locally || raw?.testingInstructions || '',
+    testCommands: Array.isArray(rawVerify?.testCommands)
+      ? rawVerify.testCommands
+      : Array.isArray(rawVerify?.test_commands)
+      ? rawVerify.test_commands
+      : [],
+  };
+
+  return {
+    type: 'feature_summary',
+    featureName,
+    summary,
+    entrypoints,
+    mermaidDiagram,
+    dependencies,
+    securityAssessment: { findings },
+    localVerification,
+  };
+}
+
+/**
+ * Defensive normalizer ensuring raw LLM outputs (whether camelCase or snake_case)
+ * conform strictly to the RepoSummaryOutput interface.
+ */
+export function normalizeRepoSummary(
+  raw: any,
+  eco: any,
+  owner: string,
+  repo: string,
+  commitSha?: string
+): RepoSummaryOutput {
+  const meta = raw?.metadata || {};
+  const metadata = {
+    repo: meta.repo || `${owner}/${repo}`,
+    primaryLanguage: meta.primaryLanguage || meta.primary_language || eco.displayName,
+    ecosystem: meta.ecosystem || eco.ecosystem,
+    techStack: Array.isArray(meta.techStack)
+      ? meta.techStack
+      : Array.isArray(meta.tech_stack)
+      ? meta.tech_stack
+      : [eco.displayName],
+    license: meta.license !== undefined ? meta.license : 'Open Source',
+    isMonorepo: meta.isMonorepo !== undefined ? !!meta.isMonorepo : meta.is_monorepo !== undefined ? !!meta.is_monorepo : !!eco.isMonorepo,
+    commitSha: meta.commitSha || meta.commit_sha || commitSha,
+  };
+
+  const purpose = raw?.purpose || raw?.description || raw?.overview || `Software repository built with ${eco.displayName}.`;
+  const rawAudience = raw?.targetAudience || raw?.target_audience || {};
+  const targetAudience = {
+    primaryBeneficiaries: Array.isArray(rawAudience.primaryBeneficiaries)
+      ? rawAudience.primaryBeneficiaries
+      : Array.isArray(rawAudience.primary_beneficiaries)
+      ? rawAudience.primary_beneficiaries
+      : ['Software Engineers'],
+    useCases: Array.isArray(rawAudience.useCases)
+      ? rawAudience.useCases
+      : Array.isArray(rawAudience.use_cases)
+      ? rawAudience.use_cases
+      : ['Development and Contribution'],
+  };
+
+  const rawArch = raw?.architecture || {};
+  const architecture = {
+    overview: rawArch.overview || `${eco.displayName} architectural structure.`,
+    mermaidDiagram: rawArch.mermaidDiagram || rawArch.mermaid_diagram || rawArch.diagram || 'graph TB\n  App["Application Core"]',
+    coreComponents: Array.isArray(rawArch.coreComponents)
+      ? rawArch.coreComponents
+      : Array.isArray(rawArch.core_components)
+      ? rawArch.core_components
+      : [],
+  };
+
+  const rawEntries = Array.isArray(raw?.entryFiles)
+    ? raw.entryFiles
+    : Array.isArray(raw?.entry_files)
+    ? raw.entry_files
+    : [];
+  const entryFiles = rawEntries.map((ef: any) => ({
+    path: ef?.path || ef?.filePath || ef?.file_path || '',
+    description: ef?.description || 'Core entry file',
+    keyExportsOrSymbols: Array.isArray(ef?.keyExportsOrSymbols)
+      ? ef.keyExportsOrSymbols
+      : Array.isArray(ef?.key_exports_or_symbols)
+      ? ef.key_exports_or_symbols
+      : [],
+  }));
+
+  const rawSec = raw?.securityAssessment || raw?.security_assessment || {};
+  const securityAssessment = {
+    overallRating: rawSec.overallRating || rawSec.overall_rating || 'CLEAN',
+    leakedCredentialsDetected: !!(rawSec.leakedCredentialsDetected || rawSec.leaked_credentials_detected),
+    flaggedFiles: Array.isArray(rawSec.flaggedFiles) ? rawSec.flaggedFiles : Array.isArray(rawSec.flagged_files) ? rawSec.flagged_files : [],
+    suspiciousScripts: Array.isArray(rawSec.suspiciousScripts) ? rawSec.suspiciousScripts : Array.isArray(rawSec.suspicious_scripts) ? rawSec.suspicious_scripts : [],
+    findings: Array.isArray(rawSec.findings) ? rawSec.findings : [],
+  };
+
+  const localSetup = raw?.localSetup || raw?.local_setup || eco.setupGuide;
+
+  return {
+    type: 'repo_summary',
+    metadata,
+    purpose,
+    targetAudience,
+    architecture,
+    entryFiles,
+    authenticity: raw?.authenticity,
+    securityAssessment,
+    localSetup,
+  };
+}
+
 @Injectable()
 export class AgentService {
   private readonly logger = new Logger(AgentService.name);
@@ -326,6 +502,9 @@ Based on these grounding facts, README, and codebase structure, generate the str
             }
           }
 
+          // Apply defensive normalizer mapping snake_case -> camelCase
+          parsed = normalizeRepoSummary(parsed, eco, owner, repo, commitSha);
+
           // Apply Grounding Validation & Pruning
           const validated = this.groundingValidator.validateRepoSummary(parsed, treePaths);
 
@@ -466,26 +645,63 @@ Based on these grounding facts, README, and codebase structure, generate the str
             ...(candidateFiles.length > 0 ? candidateFiles : []),
           ];
 
-          const systemInstruction = `You are OpenSourced, an open-source technical intelligence engine.
-Analyze repository ${owner}/${repo} specifically for the requested feature.
-IMPORTANT INSTRUCTION:
-Do NOT include general repository purpose or whom it caters to.
-Focus 100% on the feature implementation details:
-1. Feature summary & execution lifecycle.
-2. Concrete entrypoints (filePath, lineRange, symbolName, symbolType, roleInFeature).
-3. Valid Mermaid diagram (sequenceDiagram or graph TD) showing the end-to-end data flow of this feature.
-4. Internal & external dependencies.
-5. Feature-specific security vulnerabilities (auth bypass, validation).
-6. How to test or trigger this specific feature locally.
+          const systemInstruction = `You are OpenSourced, an elite open-source technical intelligence engine.
+Analyze repository ${owner}/${repo} specifically for the requested feature or implementation question.
 
-Output ONLY a valid JSON object matching the FeatureSummaryOutput schema without markdown fences.`;
+CRITICAL REPORTING STANDARDS:
+1. FOCUS: Do NOT include generic repository purpose or target audience summaries. Focus 100% on the specific feature and code requested.
+2. TECHNICAL DEPTH & ARCHITECTURE: Structure the "summary" field as an authoritative, multi-stage technical report:
+   - High-Level Architecture & Rationale: Explain the system components, data lifecycle, and why specific data stores or pipelines are used (e.g. why PostgreSQL is used for durable persistence before indexing into OpenSearch).
+   - Step-by-Step Execution Lifecycle: Walk through each concrete stage of execution (e.g. Stage 1: Setup & Healthcheck, Stage 2: Fetch & Parsing, Stage 3: Chunking & Embedding, Stage 4: Indexing & Reporting).
+   - Concrete Code Citations: Quote key code snippets directly from the inspected files with their exact paths and function/class signatures (e.g. \`dag = DAG(...)\`, \`def setup_environment():\`, \`index_papers\`).
+3. MERMAID DIAGRAM:
+   - For ANY multi-step pipeline, workflow, ETL DAG, search router, or multi-service interaction, YOU MUST PROVIDE A HIGH-LEVEL MERMAID DIAGRAM (e.g. \`graph LR\` or \`graph TD\` or \`sequenceDiagram\`).
+   - Ground the diagram in the actual components, services, and storage engines inspected (e.g. \`arXiv API --> Fetch[fetch_daily_papers] --> Postgres[(PostgreSQL)] --> Index[index_papers] --> OpenSearch[(OpenSearch)]\`).
+   - If the feature is strictly a single isolated function without multi-component flow, set "mermaidDiagram" to "". NEVER output generic placeholders like "User -> System -> User".
+4. ENTRYPOINTS:
+   - Identify the primary entrypoint files that orchestrate or define this feature (e.g. DAG definitions, API routes/endpoints, CLI commands, primary worker handlers).
+   - For each entrypoint, specify: "filePath", "lineRange" (e.g. "15-60"), "symbolName" (e.g. "dag", "search_hybrid", "IngestionWorker"), "symbolType" ("function" | "class" | "route_handler" | "component" | "middleware"), and "roleInFeature".
+5. HONESTY & MINIMALISM:
+   - If no security vulnerabilities exist, leave "findings" as [].
+   - If no specific test commands exist, leave "testCommands" as [].
+   - If no dedicated test files exist, leave "existingTestFiles" as [].
+
+You MUST output a single valid JSON object strictly matching this schema structure without markdown fences:
+{
+  "type": "feature_summary",
+  "featureName": "Concrete title of the feature or implementation",
+  "summary": "Rich multi-stage technical breakdown with architectural rationale and code citations",
+  "entrypoints": [
+    {
+      "filePath": "src/path/to/file.ext",
+      "lineRange": "10-50",
+      "symbolName": "symbol_name",
+      "symbolType": "function",
+      "roleInFeature": "Description of its role in the feature flow"
+    }
+  ],
+  "mermaidDiagram": "graph LR\\n  A[Step 1] --> B[(Store)]\\n  B --> C[Step 2]",
+  "dependencies": {
+    "internalModules": ["path/to/internal/module.py"],
+    "externalPackages": ["package-name"]
+  },
+  "securityAssessment": {
+    "findings": []
+  },
+  "localVerification": {
+    "existingTestFiles": [],
+    "howToTriggerLocally": "Command or script to execute this locally if applicable",
+    "testCommands": []
+  }
+}`;
 
           const hintPrompt = candidateHints.length ? `Candidate paths to inspect:\n${candidateHints.join('\n')}` : '';
           const prompt = `Analyze feature: "${featureQuery}" in repository ${owner}/${repo}.
 Ecosystem: ${eco.displayName}
 ${hintPrompt}
 
-Inspect candidate files or search for relevant symbols, then output the structured feature JSON.`;
+Read the relevant files using 'read_file_slice' or search using available tools to understand the complete execution flow, key symbols, and architecture.
+Synthesize an authoritative technical report with code citations and a high-level architectural diagram, then output the structured feature JSON.`;
 
           const rawOutput = await this.geminiStrategy.executeStructuredToolLoop(
             prompt,
@@ -520,6 +736,9 @@ Inspect candidate files or search for relevant symbols, then output the structur
               return;
             }
           }
+
+          // Apply defensive normalizer mapping snake_case -> camelCase
+          parsed = normalizeFeatureSummary(parsed);
 
           const validated = this.groundingValidator.validateFeatureSummary(parsed, treePaths);
           this.summaryCache.set(cacheKey, validated);

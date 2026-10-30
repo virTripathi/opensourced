@@ -1,4 +1,4 @@
-import { RepoSummaryOutput, FeatureSummaryOutput } from '@opensourced/common';
+import type { RepoSummaryOutput, FeatureSummaryOutput } from '@opensourced/common';
 
 /**
  * Formats a structured FeatureSummaryOutput into rich GitHub-flavored markdown
@@ -13,63 +13,75 @@ export function formatFeatureSummaryToMarkdown(
   const branch = repoContext?.branch || 'main';
   const repoBaseUrl = repoContext ? `https://github.com/${repoContext.owner}/${repoContext.repo}/blob/${branch}` : null;
 
-  const featureName = feature.featureName || feature.name || 'Implementation Details';
-  const summaryText = feature.summary || feature.overview || 'Feature implementation summary.';
+  const featureName = feature.featureName || feature.feature_name || feature.name || feature.title || 'Implementation Details';
+  const summaryText = feature.summary || feature.feature_summary || feature.overview || feature.description || 'Feature implementation summary.';
   const lifecycleText = feature.lifecycle ? `\n\n### Execution Lifecycle\n${feature.lifecycle}` : '';
 
-  // Mermaid diagram: can be feature.mermaidDiagram, feature.diagram, feature.architectureDiagram
-  let rawDiagram = (feature.mermaidDiagram || feature.diagram || feature.architectureDiagram || '').trim();
+  // Mermaid diagram: only render if valid and not a synthetic placeholder
+  let rawDiagram = (feature.mermaidDiagram || feature.mermaid_diagram || feature.diagram || feature.architectureDiagram || '').trim();
   if (rawDiagram.startsWith('```mermaid')) {
     rawDiagram = rawDiagram.replace(/^```mermaid/i, '').replace(/```$/i, '').trim();
   }
-  if (!rawDiagram) {
-    rawDiagram = `sequenceDiagram\n  autonumber\n  actor User\n  participant Core as ${featureName}\n  User->>Core: Execute\n  Core-->>User: Result`;
+  const isFakeDiagram =
+    !rawDiagram ||
+    rawDiagram.includes('Trigger Feature Flow') ||
+    rawDiagram.includes('Core System') ||
+    rawDiagram.includes('A[App] --> B[Core]');
+  const diagramSection = !isFakeDiagram
+    ? `\n\n## Execution & Data Flow\n\`\`\`mermaid\n${rawDiagram}\n\`\`\``
+    : '';
+
+  // Entrypoints table: omit entirely if no entrypoints discovered
+  const entrypointsList: any[] = Array.isArray(feature.entrypoints)
+    ? feature.entrypoints
+    : Array.isArray(feature.verifiedEntrypoints)
+    ? feature.verifiedEntrypoints
+    : [];
+  let entrypointsSection = '';
+  if (entrypointsList.length > 0) {
+    const rows = entrypointsList
+      .map((ep: any) => {
+        let lineStr = '';
+        if (Array.isArray(ep.lineRange)) {
+          lineStr = ep.lineRange.join('-');
+        } else if (typeof ep.lineRange === 'string') {
+          lineStr = ep.lineRange;
+        } else if (typeof ep.lineRange === 'number') {
+          lineStr = String(ep.lineRange);
+        }
+
+        const firstLine = lineStr ? lineStr.split('-')[0].replace(/[^0-9]/g, '') : '';
+        const lineHash = firstLine ? `#L${firstLine}` : '';
+        const cleanPath = (ep.filePath || ep.path || '').replace(/^\/+/, '');
+        const link = repoBaseUrl && cleanPath ? `${repoBaseUrl}/${cleanPath}${lineHash}` : cleanPath;
+        const label = lineStr ? `${cleanPath}:${lineStr}` : cleanPath;
+        const symName = ep.symbolName || ep.name || 'default';
+        const symType = ep.symbolType || ep.type || 'module';
+        const role = ep.roleInFeature || ep.role || ep.description || 'Core logic';
+
+        return `| [\`${label}\`](${link}) | \`${symName}\` | \`${symType}\` | ${role} |`;
+      })
+      .join('\n');
+
+    entrypointsSection = `\n\n## Verified Code Entrypoints\n| Entrypoint / File | Symbol | Type | Role |\n| :--- | :--- | :--- | :--- |\n${rows}`;
   }
 
-  // Entrypoints table
-  const entrypointsList: any[] = Array.isArray(feature.entrypoints) ? feature.entrypoints : [];
-  const entrypointsTable = entrypointsList.length > 0
-    ? `| Entrypoint / File | Symbol | Type | Role |
-| :--- | :--- | :--- | :--- |
-` +
-      entrypointsList
-        .map((ep: any) => {
-          let lineStr = '';
-          if (Array.isArray(ep.lineRange)) {
-            lineStr = ep.lineRange.join('-');
-          } else if (typeof ep.lineRange === 'string') {
-            lineStr = ep.lineRange;
-          } else if (typeof ep.lineRange === 'number') {
-            lineStr = String(ep.lineRange);
-          }
-
-          const firstLine = lineStr ? lineStr.split('-')[0].replace(/[^0-9]/g, '') : '';
-          const lineHash = firstLine ? `#L${firstLine}` : '';
-          const cleanPath = (ep.filePath || ep.path || '').replace(/^\/+/, '');
-          const link = repoBaseUrl && cleanPath ? `${repoBaseUrl}/${cleanPath}${lineHash}` : cleanPath;
-          const label = lineStr ? `${cleanPath}:${lineStr}` : cleanPath;
-          const symName = ep.symbolName || ep.name || 'default';
-          const symType = ep.symbolType || ep.type || 'module';
-          const role = ep.roleInFeature || ep.role || ep.description || 'Core logic';
-
-          return `| [\`${label}\`](${link}) | \`${symName}\` | \`${symType}\` | ${role} |`;
-        })
-        .join('\n')
-    : '_No specific entrypoints identified._';
-
-  // Dependencies
+  // Dependencies: omit entirely if both lists are empty
   const internalList: string[] = feature.dependencies?.internalModules || feature.dependencies?.internal || [];
-  const internalDeps = internalList.length > 0
-    ? internalList.map((m: string) => `- \`${m}\``).join('\n')
-    : '- None';
-
   const externalList: string[] = feature.dependencies?.externalPackages || feature.dependencies?.external || [];
-  const externalDeps = externalList.length > 0
-    ? externalList.map((p: string) => `- \`${p}\``).join('\n')
-    : '- None';
+  let depsSection = '';
+  if (internalList.length > 0 || externalList.length > 0) {
+    depsSection = `\n\n## Architecture & Dependencies`;
+    if (internalList.length > 0) {
+      depsSection += `\n### Internal Modules\n` + internalList.map((m: string) => `- \`${m}\``).join('\n');
+    }
+    if (externalList.length > 0) {
+      depsSection += `\n### External Packages\n` + externalList.map((p: string) => `- \`${p}\``).join('\n');
+    }
+  }
 
-  // Security
-  let securityFindings = '- No high-risk security vulnerabilities identified for this feature.';
+  // Security Assessment: omit if no genuine vulnerabilities or findings detected
+  let securityFindings = '';
   if (Array.isArray(feature.securityAssessment?.findings) && feature.securityAssessment.findings.length > 0) {
     securityFindings = feature.securityAssessment.findings
       .map(
@@ -82,50 +94,52 @@ export function formatFeatureSummaryToMarkdown(
       .map((vuln: string) => `- ⚠️ ${vuln}`)
       .join('\n');
   }
+  const securitySection = securityFindings
+    ? `\n\n## Security Assessment\n${securityFindings}`
+    : '';
 
-  // Testing & Local verification
-  const howToTrigger = feature.localVerification?.howToTriggerLocally || feature.testingInstructions || 'Run repository test suite.';
-  const testCommandsList: string[] = feature.localVerification?.testCommands || [];
-  const testCommands = testCommandsList.length > 0
-    ? `\`\`\`bash\n${testCommandsList.join('\n')}\n\`\`\``
-    : '`npm test`';
+  // Local Verification & Testing: omit if no verification instructions or commands exist
+  const rawHowToTrigger =
+    feature.localVerification?.howToTriggerLocally ||
+    feature.local_verification?.how_to_trigger_locally ||
+    feature.testingInstructions ||
+    '';
+  const isGenericTrigger =
+    !rawHowToTrigger ||
+    rawHowToTrigger === 'Run repository test suite.' ||
+    rawHowToTrigger === 'Run test suite.';
+  const howToTrigger = isGenericTrigger ? '' : rawHowToTrigger;
 
-  const existingTestsList: string[] = feature.localVerification?.existingTestFiles || [];
-  const existingTests = existingTestsList.length > 0
-    ? existingTestsList.map((t: string) => `- \`${t}\``).join('\n')
-    : '- No dedicated test file found.';
+  const testCommandsList: string[] = (
+    feature.localVerification?.testCommands ||
+    feature.local_verification?.test_commands ||
+    []
+  ).filter((cmd: string) => cmd && cmd !== 'npm test');
+
+  const existingTestsList: string[] = (
+    feature.localVerification?.existingTestFiles ||
+    feature.local_verification?.existing_test_files ||
+    []
+  ).filter(Boolean);
+
+  let verificationSection = '';
+  if (howToTrigger || testCommandsList.length > 0 || existingTestsList.length > 0) {
+    verificationSection = `\n\n## Local Verification & Testing`;
+    if (howToTrigger) {
+      verificationSection += `\n**Triggering locally:** ${howToTrigger}\n`;
+    }
+    if (existingTestsList.length > 0) {
+      verificationSection += `\n### Test Files\n` + existingTestsList.map((t: string) => `- \`${t}\``).join('\n') + '\n';
+    }
+    if (testCommandsList.length > 0) {
+      verificationSection += `\n### Test Commands\n\`\`\`bash\n${testCommandsList.join('\n')}\n\`\`\`\n`;
+    }
+  }
 
   return `# Feature: ${featureName}
 
-${summaryText}${lifecycleText}
-
-## Execution & Data Flow
-\`\`\`mermaid
-${rawDiagram}
-\`\`\`
-
-## Verified Code Entrypoints
-${entrypointsTable}
-
-## Architecture & Dependencies
-### Internal Modules
-${internalDeps}
-
-### External Packages
-${externalDeps}
-
-## Security Assessment
-${securityFindings}
-
-## Local Verification & Testing
-**Triggering locally:** ${howToTrigger}
-
-### Test Files
-${existingTests}
-
-### Test Commands
-${testCommands}
-`;
+${summaryText}${lifecycleText}${diagramSection}${entrypointsSection}${depsSection}${securitySection}${verificationSection}
+`.trim() + '\n';
 }
 
 /**
@@ -155,7 +169,7 @@ export function formatRepoSummaryToMarkdown(
           return `- [\`${cleanPath}\`](${link}): ${ef.description || 'Entry file'}${exports}`;
         })
         .join('\n')
-    : '- No entry files identified.';
+    : '';
 
   const components = Array.isArray(repoSum.architecture?.coreComponents) && repoSum.architecture.coreComponents.length > 0
     ? repoSum.architecture.coreComponents
@@ -167,9 +181,14 @@ export function formatRepoSummaryToMarkdown(
   if (rawDiagram.startsWith('```mermaid')) {
     rawDiagram = rawDiagram.replace(/^```mermaid/i, '').replace(/```$/i, '').trim();
   }
-  if (!rawDiagram) {
-    rawDiagram = 'graph TD\n  A[App] --> B[Core]';
-  }
+  const isFakeRepoDiagram =
+    !rawDiagram ||
+    rawDiagram.includes('A[App] --> B[Core]') ||
+    rawDiagram.includes('Trigger Feature Flow');
+
+  const diagramBlock = !isFakeRepoDiagram
+    ? `\n\`\`\`mermaid\n${rawDiagram}\n\`\`\`\n`
+    : '';
 
   const findings = Array.isArray(repoSum.securityAssessment?.findings) && repoSum.securityAssessment.findings.length > 0
     ? repoSum.securityAssessment.findings
@@ -182,7 +201,7 @@ export function formatRepoSummaryToMarkdown(
     ? setupCommands
         .map((c: any) => `1. **${c.step || 'Step'}** - ${c.description || ''}\n   \`\`\`bash\n   ${c.command || ''}\n   \`\`\``)
         .join('\n')
-    : '`npm install && npm start`';
+    : '';
 
   // Purpose & Authenticity section
   const auth = repoSum.authenticity;
@@ -217,6 +236,16 @@ ${claimsTable}
       ? '⚠️ Needs Attention Before Local Run'
       : '🚨 High-Risk Findings Detected';
 
+  const entryFilesSection = entryFilesList
+    ? `\n## Verified Code Entrypoints\n${entryFilesList}\n`
+    : '';
+
+  const setupSection = setupSteps
+    ? `\n## Local Quickstart & Setup\n${setupSteps}\n`
+    : '';
+
+  const archOverview = repoSum.architecture?.overview ? `${repoSum.architecture.overview}\n` : '';
+
   return `# ${repoTitle} — Repository Intelligence
 
 **Ecosystem:** ${ecosystem} | **Language:** ${primaryLanguage} | **License:** ${license}
@@ -226,21 +255,9 @@ ${repoSum.purpose || repoSum.overview || 'Repository overview'}
 
 ${authenticityBlock}
 ## Architecture
-${repoSum.architecture?.overview || ''}
-
-\`\`\`mermaid
-${rawDiagram}
-\`\`\`
-
-${components ? `### Core Modules\n${components}\n` : ''}
-## Verified Code Entrypoints
-${entryFilesList}
-
-## Local Quickstart & Setup
-${setupSteps}
-
+${archOverview}${diagramBlock}${components ? `\n### Core Modules\n${components}\n` : ''}${entryFilesSection}${setupSection}
 ## Local Safety & Hygiene
 **Status:** **${safetyBadge}**
 ${findings}
-`;
+`.trim() + '\n';
 }
