@@ -39,12 +39,14 @@ export default function App() {
     deleteReport,
     getReportsForRepo,
     getLatestReportForAction,
+    getLatestReportForRepo,
     syncWithBackend,
   } = useReportCache(API_BASE, getAuthHeaders);
 
   // Screen Routing: 'auth' | 'workspace' | 'reports'
   const [currentScreen, setCurrentScreen] = useState<'auth' | 'workspace' | 'reports'>('auth');
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [lastGeneratedReportId, setLastGeneratedReportId] = useState<string | null>(null);
   const [hasProceededWithoutAuth, setHasProceededWithoutAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isBackendOffline, setIsBackendOffline] = useState(false);
@@ -160,6 +162,7 @@ export default function App() {
     if (previousRepoRef.current !== contextRepoFullName) {
       previousRepoRef.current = contextRepoFullName;
       setSelectedReportId(null);
+      setLastGeneratedReportId(null);
     }
   }, [contextRepoFullName]);
 
@@ -188,14 +191,25 @@ export default function App() {
       const found = reports.find((r) => r.id === selectedReportId);
       if (found) return found;
     }
-    // Prefer newest/most relevant report for context
+    // If a report was specifically generated in this session for this repository, display it
+    if (lastGeneratedReportId) {
+      const found = reports.find((r) => r.id === lastGeneratedReportId);
+      if (found && found.repo.toLowerCase().trim() === contextRepoFullName.toLowerCase().trim()) {
+        return found;
+      }
+    }
+    // Prefer newest/most relevant report for context (latest by timestamp)
     if (contextReports.length > 0) {
-      const latest = contextReports.find((r) => r.isLatest);
-      return latest || contextReports[0];
+      return contextReports[0];
+    }
+    // Fallback: newest report across all repo reports if issue-specific returned 0
+    if (contextRepoFullName) {
+      const latestForRepo = getLatestReportForRepo(contextRepoFullName);
+      if (latestForRepo) return latestForRepo;
     }
     // If the active repository has 0 reports, return null so ReportsScreen displays the Directory & Selector
     return null;
-  }, [selectedReportId, contextReports, reports]);
+  }, [selectedReportId, lastGeneratedReportId, contextReports, reports, contextRepoFullName, getLatestReportForRepo]);
 
   // Auth Handlers with telemetry feedback & screen transitions
   const handleGuestLogin = async () => {
@@ -639,12 +653,15 @@ export default function App() {
                     },
                     { replaceExisting: true }
                   ).then((saved) => {
-                    setSelectedReportId(saved.id);
+                    if (saved?.id) {
+                      setSelectedReportId(saved.id);
+                      setLastGeneratedReportId(saved.id);
+                    }
                     setIsReportSaved(true);
                     setCompletedNotification({
-                      message: `${reportTitle} ${saved.version ? `v${saved.version} ` : ''}ready!`,
+                      message: `${reportTitle} ${saved?.version ? `v${saved.version} ` : ''}ready!`,
                       actionKey: actionType,
-                      reportId: saved.id,
+                      reportId: saved?.id,
                     });
                     // Move completely to dedicated View Report page
                     setCurrentScreen('reports');
@@ -737,9 +754,25 @@ export default function App() {
   // Navigation Handler: View Report from Action Card or Notification
   const handleViewReport = (actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature') => {
     if (contextRepoFullName) {
+      // 1. If a report was specifically generated for a question or issue in this session, prioritize it
+      if (lastGeneratedReportId) {
+        const found = reports.find((r) => r.id === lastGeneratedReportId);
+        if (found && found.repo.toLowerCase().trim() === contextRepoFullName.toLowerCase().trim()) {
+          setSelectedReportId(found.id);
+          setCurrentScreen('reports');
+          return;
+        }
+      }
+      // 2. Otherwise get the latest report for this action
       const rep = getLatestReportForAction(contextRepoFullName, actionKey as any, context?.issueNumber);
       if (rep) {
         setSelectedReportId(rep.id);
+      } else {
+        // 3. Fallback to the latest report generated for this repo
+        const latestRepoReport = getLatestReportForRepo(contextRepoFullName);
+        if (latestRepoReport) {
+          setSelectedReportId(latestRepoReport.id);
+        }
       }
     }
     setCurrentScreen('reports');
@@ -769,7 +802,7 @@ export default function App() {
     if (issueMatch && issueMatch[1]) {
       const issueNum = parseInt(issueMatch[1], 10);
       if (context) {
-        context.issueNumber = issueNum;
+        setContext((prev) => (prev ? { ...prev, issueNumber: issueNum } : prev));
       }
       handleTriggerAction('scan_issue', trimmed);
       return;
@@ -912,8 +945,9 @@ export default function App() {
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               onClick={() => {
-                if (completedNotification.reportId) {
-                  setSelectedReportId(completedNotification.reportId);
+                const targetId = completedNotification.reportId || lastGeneratedReportId;
+                if (targetId) {
+                  setSelectedReportId(targetId);
                 }
                 setCurrentScreen('reports');
               }}

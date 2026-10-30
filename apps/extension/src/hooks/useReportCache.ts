@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isChromeExtension } from '../utils/platform';
 
 export interface ReportVersionSnapshot {
@@ -52,27 +52,31 @@ function normalizeReportVersions(rawReports: StoredReport[]): StoredReport[] {
   const normalized: StoredReport[] = [];
   groups.forEach((group) => {
     // Sort chronological: oldest first to assign sequential v1, v2 if missing
-    group.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    group.sort((a, b) => (new Date(a.createdAt).getTime() || 0) - (new Date(b.createdAt).getTime() || 0));
     group.forEach((item, idx) => {
       const isLatest = idx === group.length - 1;
       normalized.push({
         ...item,
         version: item.version ?? (idx + 1),
-        isLatest: item.isLatest !== undefined ? (isLatest ? true : item.isLatest) : isLatest,
+        isLatest,
       });
     });
   });
 
   // Sort overall newest first by updatedAt / createdAt
   return normalized.sort((a, b) => {
-    const timeA = new Date(a.updatedAt || a.createdAt).getTime();
-    const timeB = new Date(b.updatedAt || b.createdAt).getTime();
+    const timeA = new Date(a.updatedAt || a.createdAt).getTime() || 0;
+    const timeB = new Date(b.updatedAt || b.createdAt).getTime() || 0;
     return timeB - timeA;
   });
 }
 
 export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Record<string, string>) => Record<string, string>) {
   const [reports, setReports] = useState<StoredReport[]>([]);
+  const reportsRef = useRef<StoredReport[]>(reports);
+  useEffect(() => {
+    reportsRef.current = reports;
+  }, [reports]);
   const [isLoading, setIsLoading] = useState(true);
 
   // 1. Initial Load from Local Cache (chrome.storage.local or localStorage)
@@ -83,6 +87,7 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
           chrome.storage.local.get([STORAGE_KEY], (res) => {
             if (res && res[STORAGE_KEY] && Array.isArray(res[STORAGE_KEY])) {
               const normalized = normalizeReportVersions(res[STORAGE_KEY]);
+              reportsRef.current = normalized;
               setReports(normalized);
             }
             setIsLoading(false);
@@ -91,6 +96,7 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
           const item = window.localStorage.getItem(STORAGE_KEY);
           if (item) {
             const normalized = normalizeReportVersions(JSON.parse(item));
+            reportsRef.current = normalized;
             setReports(normalized);
           }
           setIsLoading(false);
@@ -151,6 +157,7 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
             });
 
             const merged = normalizeReportVersions(Array.from(reportMap.values()));
+            reportsRef.current = merged;
             persistToLocalStorage(merged);
             return merged;
           });
@@ -171,11 +178,59 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
       const normalizedRepo = report.repo.toLowerCase().trim();
       const normalizedQuery = (report.query || '').trim();
 
-      let savedReport: StoredReport;
+      const prev = reportsRef.current;
+      // Find existing reports for the identical target scope
+      const matchingIdx = prev.findIndex((r) => {
+        const matchesRepo = r.repo.toLowerCase().trim() === normalizedRepo;
+        const matchesAction = r.action === report.action;
+        const matchesIssue = (r.issueNumber || undefined) === (report.issueNumber || undefined);
+        const matchesQuery = (r.query || '').trim() === normalizedQuery;
+        return matchesRepo && matchesAction && matchesIssue && matchesQuery;
+      });
 
-      setReports((prev) => {
-        // Find existing reports for the identical target scope
-        const matchingIdx = prev.findIndex((r) => {
+      let savedReport: StoredReport;
+      let nextReports: StoredReport[];
+
+      if (matchingIdx >= 0 && replaceExisting) {
+        // Replacement strategy: Keep the report slot, bump version, and archive prior snapshot
+        const existing = prev[matchingIdx];
+        const nextVersion = (existing.version || 1) + 1;
+        const priorSnapshots: ReportVersionSnapshot[] = [
+          ...(existing.previousVersions || []),
+          {
+            version: existing.version || 1,
+            createdAt: existing.updatedAt || existing.createdAt,
+            content: existing.content,
+            streamLogs: existing.streamLogs,
+          },
+        ];
+
+        savedReport = {
+          ...existing,
+          ...report,
+          id: existing.id,
+          createdAt: existing.createdAt, // Preserve original root generation time
+          updatedAt: new Date().toISOString(),
+          version: nextVersion,
+          isLatest: true,
+          previousVersions: priorSnapshots,
+        };
+
+        const updated = [...prev];
+        updated[matchingIdx] = savedReport;
+
+        // Re-sort so updated report bubbles to top
+        nextReports = updated.sort((a, b) => {
+          const timeA = new Date(a.updatedAt || a.createdAt).getTime() || 0;
+          const timeB = new Date(b.updatedAt || b.createdAt).getTime() || 0;
+          return timeB - timeA;
+        });
+      } else {
+        // Versioned Append strategy: Create new report item, compute sequential version
+        const id = report.id || `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const createdAt = report.createdAt || new Date().toISOString();
+
+        const matchingReports = prev.filter((r) => {
           const matchesRepo = r.repo.toLowerCase().trim() === normalizedRepo;
           const matchesAction = r.action === report.action;
           const matchesIssue = (r.issueNumber || undefined) === (report.issueNumber || undefined);
@@ -183,89 +238,40 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
           return matchesRepo && matchesAction && matchesIssue && matchesQuery;
         });
 
-        if (matchingIdx >= 0 && replaceExisting) {
-          // Replacement strategy: Keep the report slot, bump version, and archive prior snapshot
-          const existing = prev[matchingIdx];
-          const nextVersion = (existing.version || 1) + 1;
-          const priorSnapshots: ReportVersionSnapshot[] = [
-            ...(existing.previousVersions || []),
-            {
-              version: existing.version || 1,
-              createdAt: existing.updatedAt || existing.createdAt,
-              content: existing.content,
-              streamLogs: existing.streamLogs,
-            },
-          ];
+        const maxVersion = matchingReports.reduce((max, r) => Math.max(max, r.version || 1), 0);
+        const nextVersion = maxVersion > 0 ? maxVersion + 1 : 1;
 
-          savedReport = {
-            ...existing,
-            ...report,
-            id: existing.id,
-            createdAt: existing.createdAt, // Preserve original root generation time
-            updatedAt: new Date().toISOString(),
-            version: nextVersion,
-            isLatest: true,
-            previousVersions: priorSnapshots,
-          };
+        savedReport = {
+          ...report,
+          id,
+          createdAt,
+          updatedAt: new Date().toISOString(),
+          version: nextVersion,
+          isLatest: true,
+          previousVersions: report.previousVersions || [],
+        };
 
-          const updated = [...prev];
-          updated[matchingIdx] = savedReport;
+        // Mark previous matching versions as not latest
+        const updated = prev.map((r) => {
+          const matchesRepo = r.repo.toLowerCase().trim() === normalizedRepo;
+          const matchesAction = r.action === report.action;
+          const matchesIssue = (r.issueNumber || undefined) === (report.issueNumber || undefined);
+          const matchesQuery = (r.query || '').trim() === normalizedQuery;
+          if (matchesRepo && matchesAction && matchesIssue && matchesQuery) {
+            return { ...r, isLatest: false };
+          }
+          return r;
+        });
 
-          // Re-sort so updated report bubbles to top
-          const sorted = updated.sort((a, b) => {
-            const timeA = new Date(a.updatedAt || a.createdAt).getTime();
-            const timeB = new Date(b.updatedAt || b.createdAt).getTime();
-            return timeB - timeA;
-          });
+        nextReports = [savedReport, ...updated];
+      }
 
-          persistToLocalStorage(sorted);
-          return sorted;
-        } else {
-          // Versioned Append strategy: Create new report item, compute sequential version
-          const id = report.id || `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-          const createdAt = report.createdAt || new Date().toISOString();
-
-          const matchingReports = prev.filter((r) => {
-            const matchesRepo = r.repo.toLowerCase().trim() === normalizedRepo;
-            const matchesAction = r.action === report.action;
-            const matchesIssue = (r.issueNumber || undefined) === (report.issueNumber || undefined);
-            const matchesQuery = (r.query || '').trim() === normalizedQuery;
-            return matchesRepo && matchesAction && matchesIssue && matchesQuery;
-          });
-
-          const maxVersion = matchingReports.reduce((max, r) => Math.max(max, r.version || 1), 0);
-          const nextVersion = maxVersion > 0 ? maxVersion + 1 : 1;
-
-          savedReport = {
-            ...report,
-            id,
-            createdAt,
-            updatedAt: new Date().toISOString(),
-            version: nextVersion,
-            isLatest: true,
-            previousVersions: report.previousVersions || [],
-          };
-
-          // Mark previous matching versions as not latest
-          const updated = prev.map((r) => {
-            const matchesRepo = r.repo.toLowerCase().trim() === normalizedRepo;
-            const matchesAction = r.action === report.action;
-            const matchesIssue = (r.issueNumber || undefined) === (report.issueNumber || undefined);
-            const matchesQuery = (r.query || '').trim() === normalizedQuery;
-            if (matchesRepo && matchesAction && matchesIssue && matchesQuery) {
-              return { ...r, isLatest: false };
-            }
-            return r;
-          });
-
-          const result = [savedReport, ...updated];
-          persistToLocalStorage(result);
-          return result;
-        }
-      });
+      reportsRef.current = nextReports;
+      setReports(nextReports);
+      persistToLocalStorage(nextReports);
 
       // Synchronize with backend if configured
-      if (apiBase && getAuthHeaders && savedReport!) {
+      if (apiBase && getAuthHeaders && savedReport) {
         try {
           fetch(`${apiBase}/api/reports`, {
             method: 'POST',
@@ -281,7 +287,7 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
         } catch {}
       }
 
-      return savedReport!;
+      return savedReport;
     },
     [apiBase, getAuthHeaders, persistToLocalStorage]
   );
@@ -289,11 +295,10 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
   // 5. Delete Report
   const deleteReport = useCallback(
     async (reportId: string): Promise<boolean> => {
-      setReports((prev) => {
-        const updated = prev.filter((r) => r.id !== reportId);
-        persistToLocalStorage(updated);
-        return updated;
-      });
+      const updated = reportsRef.current.filter((r) => r.id !== reportId);
+      reportsRef.current = updated;
+      setReports(updated);
+      persistToLocalStorage(updated);
 
       if (apiBase && getAuthHeaders) {
         try {
@@ -314,13 +319,19 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
   const getReportsForRepo = useCallback(
     (repoFullName: string, issueNumber?: number): StoredReport[] => {
       const normalizedRepo = repoFullName.toLowerCase().trim();
-      return reports.filter((r) => {
+      const matched = reports.filter((r) => {
         const matchesRepo = r.repo.toLowerCase().trim() === normalizedRepo;
         if (!matchesRepo) return false;
-        if (issueNumber !== undefined && r.issueNumber !== undefined) {
+        if (issueNumber !== undefined) {
           return r.issueNumber === issueNumber;
         }
         return true;
+      });
+
+      return matched.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt).getTime() || 0;
+        const timeB = new Date(b.updatedAt || b.createdAt).getTime() || 0;
+        return timeB - timeA;
       });
     },
     [reports]
@@ -331,21 +342,30 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
       const candidates = getReportsForRepo(repoFullName, issueNumber).filter(
         (r) => r.action === actionType
       );
-      if (candidates.length === 0) return null;
+      if (candidates.length === 0) {
+        if (issueNumber !== undefined) {
+          const fallback = getReportsForRepo(repoFullName).filter((r) => r.action === actionType);
+          if (fallback.length > 0) return fallback[0];
+        }
+        return null;
+      }
 
-      // Prefer isLatest, then highest version, then most recent timestamp
+      // Sort newest first by timestamp
       candidates.sort((a, b) => {
-        if (a.isLatest && !b.isLatest) return -1;
-        if (!a.isLatest && b.isLatest) return 1;
-        const vA = a.version || 1;
-        const vB = b.version || 1;
-        if (vB !== vA) return vB - vA;
-        const timeA = new Date(a.updatedAt || a.createdAt).getTime();
-        const timeB = new Date(b.updatedAt || b.createdAt).getTime();
+        const timeA = new Date(a.updatedAt || a.createdAt).getTime() || 0;
+        const timeB = new Date(b.updatedAt || b.createdAt).getTime() || 0;
         return timeB - timeA;
       });
 
       return candidates[0];
+    },
+    [getReportsForRepo]
+  );
+
+  const getLatestReportForRepo = useCallback(
+    (repoFullName: string): StoredReport | null => {
+      const repoReports = getReportsForRepo(repoFullName);
+      return repoReports.length > 0 ? repoReports[0] : null;
     },
     [getReportsForRepo]
   );
@@ -358,5 +378,6 @@ export function useReportCache(apiBase?: string, getAuthHeaders?: (headers?: Rec
     syncWithBackend,
     getReportsForRepo,
     getLatestReportForAction,
+    getLatestReportForRepo,
   };
 }
