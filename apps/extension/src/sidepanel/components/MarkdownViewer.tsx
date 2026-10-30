@@ -23,6 +23,26 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     setTimeout(() => setCopiedSnippetIndex(null), 2000);
   };
 
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href?: string) => {
+    if (!href) return;
+
+    // Synchronized Split-Pane Navigation: Jump active GitHub tab directly
+    if (href.startsWith('https://github.com/') || href.startsWith('http://github.com/')) {
+      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+        e.preventDefault();
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          const activeTab = tabs?.[0];
+          if (activeTab?.id) {
+            chrome.tabs.update(activeTab.id, { url: href });
+          } else {
+            window.open(href, '_blank');
+          }
+        });
+        return;
+      }
+    }
+  };
+
   return (
     <div className={`prose-sm max-w-none text-left leading-relaxed ${className}`}>
       <ReactMarkdown
@@ -138,17 +158,22 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
               {children}
             </blockquote>
           ),
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium inline-flex items-center gap-0.5"
-            >
-              <span>{children}</span>
-              <ExternalLink className="w-2.5 h-2.5 inline" />
-            </a>
-          ),
+          a: ({ href, children }) => {
+            const isGitHubLink = href?.startsWith('https://github.com/') || href?.startsWith('http://github.com/');
+            return (
+              <a
+                href={href}
+                onClick={(e) => handleLinkClick(e, href)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium inline-flex items-center gap-0.5 cursor-pointer"
+                title={isGitHubLink ? 'Jump to file in left browser tab' : undefined}
+              >
+                <span>{children}</span>
+                <ExternalLink className="w-2.5 h-2.5 inline opacity-70" />
+              </a>
+            );
+          },
           table: ({ children }) => (
             <div className="my-2.5 overflow-x-auto rounded border border-[#e9e9e7] dark:border-[#2e2e2e]">
               <table className="w-full text-left text-xs text-[#37352f] dark:text-[#ebebeb] border-collapse">

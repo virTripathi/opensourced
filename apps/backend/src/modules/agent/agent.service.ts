@@ -268,10 +268,23 @@ Call the 'get_repo_overview' tool to inspect the README and metadata, then outpu
         // Apply Grounding Validation & Pruning
         const validated = this.groundingValidator.validateRepoSummary(parsed, treePaths);
 
+        // Defensive guard: Ensure securityAssessment exists before property mutations
+        if (!validated.securityAssessment) {
+          validated.securityAssessment = {
+            overallRating: secretScan.hasCommittedSecrets ? 'INSECURE' : 'SECURE',
+            leakedCredentialsDetected: secretScan.hasCommittedSecrets,
+            flaggedFiles: secretScan.flaggedFiles,
+            findings: [],
+          };
+        } else if (!Array.isArray(validated.securityAssessment.findings)) {
+          validated.securityAssessment.findings = [];
+        }
+
         // Inject committed secrets if found
         if (secretScan.hasCommittedSecrets) {
           validated.securityAssessment.leakedCredentialsDetected = true;
           validated.securityAssessment.overallRating = 'INSECURE';
+          validated.securityAssessment.flaggedFiles = secretScan.flaggedFiles;
           for (const file of secretScan.flaggedFiles) {
             if (!validated.securityAssessment.findings.some((f) => f.fileOrLocation === file)) {
               validated.securityAssessment.findings.unshift({

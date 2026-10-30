@@ -589,7 +589,7 @@
   },
   "info": {
     "title": "OpenSourced API - Open-Source Onboarding Assistant",
-    "description": "Complete OpenAPI specification for OpenSourced backend intelligence engine. Includes repository & feature summarisation, universal multi-language architecture analysis, credential leak guardrails, Git workspace bridging, and Google Drive artifact export. Import directly into Postman via http://localhost:8000/api/docs-json or using the exported openapi-spec.json.",
+    "description": "Complete OpenAPI specification for OpenSourced backend intelligence engine. Includes repository & feature summarisation, universal multi-language architecture analysis, credential leak guardrails, Git workspace bridging, and Google Drive artifact export. Import directly into Postman via http://localhost:8001/api/docs-json or using the exported openapi-spec.json.",
     "version": "1.2.0",
     "contact": {}
   },
@@ -617,7 +617,7 @@
   ],
   "servers": [
     {
-      "url": "http://localhost:8000",
+      "url": "http://localhost:8001",
       "description": "Active Local Server"
     },
     {

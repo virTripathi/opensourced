@@ -45,13 +45,29 @@ export class EcosystemDetectorService {
       'php',
     ];
 
+    // 1a. First Pass: Check for ROOT-level manifests (e.g. package.json, Cargo.toml at repo root)
     for (const eco of priorityOrder) {
       const rule = UNIVERSAL_ECOSYSTEM_REGISTRY[eco];
-      const foundManifest = rule.manifestFiles.find((m) => fileSet.has(m) || filePaths.some((p) => p.endsWith('/' + m)));
-      if (foundManifest) {
+      const foundRootManifest = rule.manifestFiles.find((m) => fileSet.has(m));
+      if (foundRootManifest) {
         detectedEcosystem = eco;
-        matchedManifest = foundManifest;
+        matchedManifest = foundRootManifest;
         break;
+      }
+    }
+
+    // 1b. Second Pass: If no root manifest matched, check nested subfolder paths
+    if (detectedEcosystem === 'generic') {
+      for (const eco of priorityOrder) {
+        const rule = UNIVERSAL_ECOSYSTEM_REGISTRY[eco];
+        const foundNestedManifest = rule.manifestFiles.find((m) =>
+          filePaths.some((p) => p.endsWith('/' + m))
+        );
+        if (foundNestedManifest) {
+          detectedEcosystem = eco;
+          matchedManifest = foundNestedManifest;
+          break;
+        }
       }
     }
 

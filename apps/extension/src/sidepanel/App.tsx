@@ -12,6 +12,7 @@ import { WisprVoiceBar } from './components/WisprVoiceBar';
 import { ActionCards } from './components/ActionCards';
 import { OutputViewer } from './components/OutputViewer';
 import { ReportsScreen } from './components/ReportsScreen';
+import { formatFeatureSummaryToMarkdown, formatRepoSummaryToMarkdown } from '../utils/format-summary';
 import { EXTENSION_CONFIG } from '../config/constants';
 
 const API_BASE = EXTENSION_CONFIG.apiBase;
@@ -51,7 +52,7 @@ export default function App() {
   // Completed Action Notification in Workspace
   const [completedNotification, setCompletedNotification] = useState<{
     message: string;
-    actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr';
+    actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature';
     reportId?: string;
   } | null>(null);
 
@@ -88,10 +89,6 @@ export default function App() {
   const [clonedTargetPath, setClonedTargetPath] = useState<string | null>(null);
   const [vsCodeUri, setVsCodeUri] = useState<string | null>(null);
   const cloneAbortControllerRef = useRef<AbortController | null>(null);
-
-  // Wispr Flow Voice state
-  const [isListening, setIsListening] = useState(false);
-  const [voiceTranscript, setVoiceTranscript] = useState('');
 
   // 1. Detect GitHub context from active tab on initial mount
   useEffect(() => {
@@ -427,8 +424,11 @@ export default function App() {
     }
   };
 
-  // Agent Actions (Scan, OWASP, Draft PR) with Automatic Report Cache Persistence
-  const handleTriggerAction = async (actionType: 'scan_issue' | 'owasp_check' | 'draft_pr') => {
+  // Agent Actions (Scan, OWASP, Draft PR, Summaries) with Automatic Report Cache Persistence
+  const handleTriggerAction = async (
+    actionType: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature',
+    customQuery?: string
+  ) => {
     if (!context) {
       setStreamLogs((prev) => [
         ...prev,
@@ -446,12 +446,17 @@ export default function App() {
 
     let accumulatedResult = '';
 
+    const requestPayloadContext = {
+      ...context,
+      ...(customQuery ? { title: customQuery, body: customQuery } : {}),
+    };
+
     try {
       const response = await fetch(`${API_BASE}/api/agent/stream`, {
         method: 'POST',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
-        body: JSON.stringify({ action: actionType, context }),
+        body: JSON.stringify({ action: actionType, context: requestPayloadContext }),
       });
 
       if (!response.body) return;
@@ -476,9 +481,44 @@ export default function App() {
               } else if (event.type === 'TOKEN_DELTA') {
                 accumulatedResult += event.text;
                 setLatestResult((prev) => prev + event.text);
+              } else if (event.type === 'REPO_SUMMARY_COMPLETE' && event.result) {
+                const md = formatRepoSummaryToMarkdown(event.result, {
+                  owner: context.owner,
+                  repo: context.repo,
+                  branch: context.branch,
+                });
+                accumulatedResult = md;
+                setLatestResult(md);
+              } else if (event.type === 'FEATURE_SUMMARY_COMPLETE' && event.result) {
+                const md = formatFeatureSummaryToMarkdown(event.result, {
+                  owner: context.owner,
+                  repo: context.repo,
+                  branch: context.branch,
+                });
+                accumulatedResult = md;
+                setLatestResult(md);
               } else if (event.type === 'PIPELINE_COMPLETE') {
                 setStreamLogs((prev) => [...prev, `[SUCCESS] Completed ${actionType}`]);
                 setActiveAction(null);
+
+                // Handle structured result in PIPELINE_COMPLETE if accumulatedResult is empty
+                if (event.result && !accumulatedResult.trim()) {
+                  if ((event.result as any).type === 'feature_summary') {
+                    accumulatedResult = formatFeatureSummaryToMarkdown(event.result as any, {
+                      owner: context.owner,
+                      repo: context.repo,
+                      branch: context.branch,
+                    });
+                    setLatestResult(accumulatedResult);
+                  } else if ((event.result as any).type === 'repo_summary') {
+                    accumulatedResult = formatRepoSummaryToMarkdown(event.result as any, {
+                      owner: context.owner,
+                      repo: context.repo,
+                      branch: context.branch,
+                    });
+                    setLatestResult(accumulatedResult);
+                  }
+                }
 
                 // Persist completed report to cache for instant dual affordance & Reports screen
                 if (accumulatedResult.trim()) {
@@ -486,6 +526,8 @@ export default function App() {
                     scan_issue: `Entrypoint Scan for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
                     owasp_check: `OWASP Security Audit for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
                     draft_pr: `PR Description Draft for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
+                    summarise: `Repository Intelligence for ${context.repo}`,
+                    summarise_feature: `Feature: ${customQuery || context.title || 'Summary'} (${context.repo})`,
                   };
 
                   saveReport({
@@ -556,9 +598,9 @@ export default function App() {
   };
 
   // Navigation Handler: View Report from Action Card or Notification
-  const handleViewReport = (actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr') => {
+  const handleViewReport = (actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature') => {
     if (contextRepoFullName) {
-      const rep = getLatestReportForAction(contextRepoFullName, actionKey, context?.issueNumber);
+      const rep = getLatestReportForAction(contextRepoFullName, actionKey as any, context?.issueNumber);
       if (rep) {
         setSelectedReportId(rep.id);
       }
@@ -566,33 +608,23 @@ export default function App() {
     setCurrentScreen('reports');
   };
 
-  // Wispr Flow Voice toggle & recognition
-  const toggleListening = () => {
-    if (!isListening) {
-      setIsListening(true);
-      setVoiceTranscript('Listening... Speak "Clone repo", "Scan issue", or dictate hints');
-      setTimeout(() => {
-        setVoiceTranscript('Recognized command: "Scan issue"');
-        setTimeout(() => {
-          setIsListening(false);
-          handleTriggerAction('scan_issue');
-        }, 800);
-      }, 2500);
-    } else {
-      setIsListening(false);
-      setVoiceTranscript('');
-    }
-  };
-
   const handleVoiceAction = (actionKey: string) => {
-    setVoiceTranscript(`Action triggered: "${actionKey}"`);
     if (actionKey === 'clone') {
       handleExecuteClone();
-    } else if (actionKey === 'scan_issue' || actionKey === 'owasp_check' || actionKey === 'draft_pr') {
-      handleTriggerAction(actionKey);
+    } else if (
+      actionKey === 'scan_issue' ||
+      actionKey === 'owasp_check' ||
+      actionKey === 'draft_pr' ||
+      actionKey === 'summarise'
+    ) {
+      handleTriggerAction(actionKey as any);
     } else if (actionKey === 'drive') {
       handleSaveToDrive();
     }
+  };
+
+  const handleSearchQuery = (query: string) => {
+    handleTriggerAction('summarise_feature', query);
   };
 
   const handleClearOutput = () => {
@@ -712,12 +744,11 @@ export default function App() {
       {/* Active GitHub Context (Notion Callout) */}
       <ContextCard context={context} />
 
-      {/* Wispr Flow Voice Bar */}
+      {/* Wispr Flow Dictation & Search Bar */}
       <WisprVoiceBar
-        isListening={isListening}
-        voiceTranscript={voiceTranscript}
-        toggleListening={toggleListening}
-        onVoiceAction={handleVoiceAction}
+        onSearchQuery={handleSearchQuery}
+        onQuickAction={handleVoiceAction}
+        disabled={activeAction !== null}
       />
 
       {/* Notion Action Cards with Dual Affordance (View Report ➔ & Re-scan ↻) */}
