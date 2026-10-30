@@ -7,6 +7,7 @@ import { z } from 'zod';
 export const GitHubContextSchema = z.object({
   owner: z.string(),
   repo: z.string(),
+  branch: z.string().optional(),
   issueNumber: z.number().int().positive().optional(),
   isIssue: z.boolean().default(true),
   url: z.string().url(),
