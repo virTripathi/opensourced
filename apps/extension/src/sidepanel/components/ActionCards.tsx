@@ -300,7 +300,7 @@ export const ActionCards: React.FC<ActionCardsProps> = ({
               )}
             </div>
 
-            {/* OWASP Security Audit */}
+            {/* Local Safety & Hygiene Audit */}
             <div className="bg-white dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] rounded-lg p-2.5 flex items-center justify-between hover:border-emerald-500/50 transition-colors group">
               <div className="flex items-center gap-2.5 min-w-0 pr-2">
                 <div className="w-7 h-7 rounded bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
@@ -308,10 +308,10 @@ export const ActionCards: React.FC<ActionCardsProps> = ({
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-[#37352f] dark:text-[#ebebeb] truncate">
-                    OWASP Pre-Flight Check
+                    Local Safety & Hygiene
                   </div>
                   <div className="text-[11px] text-[#787774] dark:text-[#9b9a97] truncate">
-                    Audit code for common security vulnerabilities
+                    Check secrets, malicious install hooks & hygiene
                   </div>
                   {reportsByAction.owasp_check && (
                     <div className="flex items-center gap-1 mt-0.5 text-[10px] text-blue-600 dark:text-blue-400 font-medium">
@@ -326,7 +326,7 @@ export const ActionCards: React.FC<ActionCardsProps> = ({
                 'owasp_check',
                 'Audit',
                 'View Audit',
-                'Re-run OWASP security audit'
+                'Re-run local safety and hygiene check'
               )}
             </div>
 

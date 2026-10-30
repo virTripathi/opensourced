@@ -27,7 +27,7 @@ export class AgentService {
     private readonly groundingValidator: GroundingValidatorService,
     private readonly summaryCache: SummaryCacheService,
     @Optional() private readonly authService?: AuthService
-  ) {}
+  ) { }
 
   /**
    * Action dispatcher routing incoming requests to corresponding pipelines
@@ -69,17 +69,34 @@ export class AgentService {
             return;
           }
 
-          // If issue number is present but body or title is missing, enrich from GitHub API
-          if (context.issueNumber && (!context.body || context.body === 'No issue body provided' || !context.title)) {
-            const issueData = await this.mcpRegistry.getIssue(context.owner, context.repo, context.issueNumber);
-            if (issueData.title && !context.title) context.title = issueData.title;
-            if (issueData.body && (!context.body || context.body === 'No issue body provided')) {
-              context.body = issueData.body;
+          // If issue number is present, enrich title, body, and discussion comments from GitHub API
+          let issueBodyWithDiscussion = context.body || 'No issue body provided';
+          if (context.issueNumber) {
+            if (!context.body || context.body === 'No issue body provided' || !context.title) {
+              const issueData = await this.mcpRegistry.getIssue(context.owner, context.repo, context.issueNumber);
+              if (issueData.title && !context.title) context.title = issueData.title;
+              if (issueData.body && (!context.body || context.body === 'No issue body provided')) {
+                context.body = issueData.body;
+                issueBodyWithDiscussion = issueData.body;
+              }
+            }
+
+            // Eagerly fetch discussion comments so analysis is grounded in real community/maintainer consensus
+            try {
+              const comments = await this.mcpRegistry.getIssueComments(context.owner, context.repo, context.issueNumber, 8);
+              if (comments.length > 0) {
+                const discussionFormatted = comments
+                  .map((c, idx) => `[Comment #${idx + 1} by @${c.author}]:\n${c.body}`)
+                  .join('\n\n');
+                issueBodyWithDiscussion += `\n\n--- Discussion Comments ---\n${discussionFormatted}`;
+              }
+            } catch (err: any) {
+              this.logger.warn(`Could not fetch comments for issue #${context.issueNumber}: ${err.message}`);
             }
           }
 
-          // Default actions (scan_issue, owasp_check, draft_pr)
-          const sanitizedBody = this.guardrails.wrapUntrusted('issue_body', context.body || 'No issue body provided');
+          // Default actions (scan_issue, safety_check, draft_pr)
+          const sanitizedBody = this.guardrails.wrapUntrusted('issue_context', issueBodyWithDiscussion);
           let prompt = '';
           let systemInstruction = '';
 
@@ -91,17 +108,18 @@ export class AgentService {
                 prompt = `Analyze repository ${context.owner}/${context.repo}:\n\nFind the primary architectural entrypoints (file paths, line ranges, function/class names, module roles) to onboard and contribute to this repository.`;
               } else {
                 systemInstruction =
-                  'You are an expert open-source onboarding AI. Analyze the issue, invoke search_code_symbols and read_file_slice tools to pinpoint exact files and line numbers where changes are required.';
-                prompt = `Analyze repository ${context.owner}/${context.repo} issue #${context.issueNumber} (${context.title || ''}):\n\n${sanitizedBody}\n\nSearch the codebase and find the concrete entrypoints (file path, line range, function name) to fix this issue.`;
+                  'You are an expert open-source onboarding AI. Analyze the issue and discussion, invoke search_code_symbols and read_file_slice tools to pinpoint exact files and line numbers where changes are required.';
+                prompt = `Analyze repository ${context.owner}/${context.repo} issue #${context.issueNumber} (${context.title || ''}):\n\n${sanitizedBody}\n\nSearch the codebase and find the concrete entrypoints (file path, line range, function name) to fix this issue based on the issue description and discussion.`;
               }
               break;
 
+            case 'safety_check':
             case 'owasp_check':
               systemInstruction =
-                'You are an OWASP application security auditor. Audit the identified candidate code areas for OWASP Top 10 vulnerabilities (Injection, Broken Access Control, SSRF, Auth failures). Provide concrete remediation code.';
+                'You are an expert open-source security and local hygiene auditor. Audit the repository for local developer execution safety: verify if package manifests contain dangerous or suspicious lifecycle scripts (curl pipes, obfuscated eval), check for exposed credentials, assess authentication boundaries, and verify safe local execution instructions.';
               prompt = context.issueNumber
-                ? `Audit candidate fix areas for issue #${context.issueNumber} in ${context.owner}/${context.repo} against OWASP Top 10 vulnerabilities:\n\n${sanitizedBody}`
-                : `Audit repository ${context.owner}/${context.repo} against OWASP Top 10 security vulnerabilities and potential code injection or configuration risks.`;
+                ? `Audit candidate fix areas and discussion for issue #${context.issueNumber} in ${context.owner}/${context.repo} for local developer safety, credential hygiene, and input validation:\n\n${sanitizedBody}`
+                : `Audit repository ${context.owner}/${context.repo} for developer local safety, package lifecycle scripts, and credential hygiene. Provide concrete verification and remediation steps.`;
               break;
 
             case 'draft_pr':
@@ -159,6 +177,29 @@ export class AgentService {
 
           // Step 3: Universal Ecosystem Detection & Setup Grounding
           const eco = this.ecosystemDetector.detectEcosystem(treePaths);
+          const hasTestFiles = treePaths.some(
+            (p) =>
+              p.includes('.test.') ||
+              p.includes('.spec.') ||
+              p.startsWith('tests/') ||
+              p.startsWith('test/') ||
+              p.includes('__tests__')
+          );
+
+          // Step 3b: Inspect Manifest for Suspicious Lifecycle Script Hooks
+          let suspiciousScripts: string[] = [];
+          if (eco.manifestFile) {
+            try {
+              const manifestContent = await this.mcpRegistry.getManifestContent(owner, repo, eco.manifestFile);
+              if (manifestContent) {
+                const scriptCheck = this.guardrails.scanManifestForSuspiciousScripts(manifestContent);
+                suspiciousScripts = scriptCheck.findings;
+              }
+            } catch (err: any) {
+              this.logger.warn(`Could not audit manifest '${eco.manifestFile}': ${err.message}`);
+            }
+          }
+
           subscriber.next({
             type: 'TREE_ANALYZED',
             ecosystem: eco.displayName,
@@ -180,137 +221,150 @@ export class AgentService {
             return;
           }
 
-        // Step 5: Construct Grounded Analysis Prompt
-        const focusPrompt = focusAreas?.length ? `Focus specifically on: ${focusAreas.join(', ')}.` : '';
-        const systemInstruction = `You are OpenSourced, an elite open-source codebase analyst.
+          // Step 5: Construct Grounded Analysis Prompt
+          const focusPrompt = focusAreas?.length ? `Focus specifically on: ${focusAreas.join(', ')}.` : '';
+          const systemInstruction = `You are OpenSourced, an elite open-source codebase analyst.
 Your task is to analyze repository ${owner}/${repo} and output ONLY a valid JSON object matching the RepoSummaryOutput schema.
 Requirements:
 1. Explain what purpose it serves and whom it caters (target audience).
 2. Produce a valid Mermaid diagram (graph TB) illustrating high-level architectural components.
 3. List the primary entry files and why they matter.
-4. List potential security vulnerabilities or confirm security posture.
-5. Provide step-by-step local setup instructions.
+4. Verify Authenticity & Purpose: Compare the README claims against real codebase facts (manifest, tests, entrypoints, codebase).
+5. Provide a pragmatic Developer Safety Assessment (committed secrets, dangerous install hooks, overall rating).
+6. Provide step-by-step local setup instructions.
 
 Format your entire response as a pure JSON object without markdown fences.`;
 
-        const prompt = `Perform a comprehensive technical summarisation of ${owner}/${repo}.
+          const prompt = `Perform a comprehensive technical summarisation and authenticity evaluation of ${owner}/${repo}.
 Grounding Facts:
 - Detected Ecosystem: ${eco.displayName}
 - Manifest: ${eco.manifestFile || 'None'}
 - Monorepo: ${eco.isMonorepo ? `Yes (${eco.monorepoTool})` : 'No'}
+- Total Tracked Files: ${treePaths.length}
+- Test Files Present: ${hasTestFiles ? 'Yes' : 'No'}
+- Suspicious Lifecycle Hooks: ${suspiciousScripts.length > 0 ? suspiciousScripts.join(', ') : 'None detected'}
 - Verified Entrypoints Discovered: ${eco.verifiedEntrypoints.join(', ') || 'Root files'}
 - Sample Env File: ${eco.sampleEnvFile || 'None'}
 ${focusPrompt}
 
 Call the 'get_repo_overview' tool to inspect the README and metadata, then output the structured JSON summary.`;
 
-        const rawOutput = await this.geminiStrategy.executeStructuredToolLoop(
-          prompt,
-          (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner, repo }),
-          (event) => subscriber.next(event),
-          { systemInstruction }
-        );
+          const rawOutput = await this.geminiStrategy.executeStructuredToolLoop(
+            prompt,
+            (tool, args) => this.mcpRegistry.executeTool(tool, { ...args, owner, repo }),
+            (event) => subscriber.next(event),
+            { systemInstruction }
+          );
 
-        // Step 6: Parse and Validate Structured Output
-        let parsed: RepoSummaryOutput;
-        try {
+          // Step 6: Parse and Validate Structured Output
+          let parsed: RepoSummaryOutput;
           const cleanJson = rawOutput.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
-          parsed = JSON.parse(cleanJson);
-        } catch (err: any) {
-          this.logger.warn(`Failed to parse model output as JSON: ${err.message}. Synthesizing from eco facts.`);
-          parsed = {
-            type: 'repo_summary',
-            metadata: {
-              repo: `${owner}/${repo}`,
-              primaryLanguage: eco.displayName,
-              ecosystem: eco.ecosystem,
-              techStack: [eco.displayName, eco.monorepoTool].filter(Boolean) as string[],
-              license: 'Open Source',
-              isMonorepo: eco.isMonorepo,
-              commitSha,
-            },
-            purpose: `Software repository built with ${eco.displayName}.`,
-            targetAudience: {
-              primaryBeneficiaries: ['Software Engineers', 'Open Source Contributors'],
-              useCases: ['Local development', 'Contribution', 'Production deployment'],
-            },
-            architecture: {
-              overview: `${eco.displayName} architectural structure.`,
-              mermaidDiagram: 'graph TB\n  Client["Client Tier"] --> App["Application Core"]\n  App --> DB["Database / Services"]',
-              coreComponents: eco.verifiedEntrypoints.map((p) => ({
-                name: p.split('/').pop() || p,
-                path: p,
-                role: 'Entry file',
-                dependencies: [],
-              })),
-            },
-            entryFiles: eco.verifiedEntrypoints.map((p) => ({
-              path: p,
-              description: 'Primary entry file',
-              keyExportsOrSymbols: [],
-            })),
-            securityAssessment: {
-              overallRating: secretScan.hasCommittedSecrets ? 'INSECURE' : 'SECURE',
-              leakedCredentialsDetected: secretScan.hasCommittedSecrets,
-              flaggedFiles: secretScan.flaggedFiles,
-              findings: secretScan.flaggedFiles.map((file) => ({
-                category: 'Hardcoded Secret / Leaked Credential',
-                severity: 'CRITICAL',
-                fileOrLocation: file,
-                description: `Committed credential or environment file detected in tree: ${file}`,
-                remediation: `Add '${file}' to .gitignore and rotate any exposed keys immediately.`,
-              })),
-            },
-            localSetup: eco.setupGuide,
-          };
-        }
-
-        // Apply Grounding Validation & Pruning
-        const validated = this.groundingValidator.validateRepoSummary(parsed, treePaths);
-
-        // Defensive guard: Ensure securityAssessment exists before property mutations
-        if (!validated.securityAssessment) {
-          validated.securityAssessment = {
-            overallRating: secretScan.hasCommittedSecrets ? 'INSECURE' : 'SECURE',
-            leakedCredentialsDetected: secretScan.hasCommittedSecrets,
-            flaggedFiles: secretScan.flaggedFiles,
-            findings: [],
-          };
-        } else if (!Array.isArray(validated.securityAssessment.findings)) {
-          validated.securityAssessment.findings = [];
-        }
-
-        // Inject committed secrets if found
-        if (secretScan.hasCommittedSecrets) {
-          validated.securityAssessment.leakedCredentialsDetected = true;
-          validated.securityAssessment.overallRating = 'INSECURE';
-          validated.securityAssessment.flaggedFiles = secretScan.flaggedFiles;
-          for (const file of secretScan.flaggedFiles) {
-            if (!validated.securityAssessment.findings.some((f) => f.fileOrLocation === file)) {
-              validated.securityAssessment.findings.unshift({
-                category: 'Leaked Credential File',
-                severity: 'CRITICAL',
-                fileOrLocation: file,
-                description: `Sensitive credential file found committed to repository tree: ${file}`,
-                remediation: `Remove file from git tracking, add to .gitignore, and immediately rotate any keys.`,
+          try {
+            parsed = JSON.parse(cleanJson);
+          } catch (err: any) {
+            this.logger.warn(`Failed to parse model output as JSON: ${err.message}. Attempting 1-turn repair prompt.`);
+            try {
+              const repairPrompt = `Fix the following invalid JSON so that it strictly parses with JSON.parse. Output ONLY the valid JSON, no markdown fences or prose:\n\n${cleanJson}`;
+              const repaired = await this.geminiStrategy.generateCompletion(repairPrompt);
+              const cleanRepaired = repaired.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+              parsed = JSON.parse(cleanRepaired);
+            } catch (repairErr: any) {
+              this.logger.error(`Model JSON repair failed: ${repairErr.message}`);
+              subscriber.next({
+                type: 'PIPELINE_ERROR',
+                code: 'MODEL_SYNTAX_ERROR',
+                message: 'Unable to parse structured model response. Please click Re-Scan to retry.',
+                recoverable: true,
               });
+              subscriber.complete();
+              return;
             }
           }
+
+          // Apply Grounding Validation & Pruning
+          const validated = this.groundingValidator.validateRepoSummary(parsed, treePaths);
+
+          // Defensive guard: Ensure securityAssessment exists before property mutations
+          if (!validated.securityAssessment) {
+            validated.securityAssessment = {
+              overallRating: secretScan.hasCommittedSecrets || suspiciousScripts.length > 0 ? 'NEEDS_ATTENTION' : 'CLEAN',
+              leakedCredentialsDetected: secretScan.hasCommittedSecrets,
+              flaggedFiles: secretScan.flaggedFiles,
+              suspiciousScripts,
+              findings: [],
+            };
+          } else if (!Array.isArray(validated.securityAssessment.findings)) {
+            validated.securityAssessment.findings = [];
+          }
+
+          // Inject suspicious scripts if found
+          if (!validated.securityAssessment.suspiciousScripts) {
+            validated.securityAssessment.suspiciousScripts = suspiciousScripts;
+          }
+          for (const scriptDesc of suspiciousScripts) {
+            if (!validated.securityAssessment.findings.some((f) => f.description.includes(scriptDesc))) {
+              validated.securityAssessment.findings.push({
+                category: 'Suspicious Lifecycle Hook',
+                severity: 'HIGH',
+                fileOrLocation: eco.manifestFile || 'manifest',
+                description: `Dangerous lifecycle script detected in manifest: ${scriptDesc}`,
+                remediation: 'Inspect scripts in package manifest before running install or build commands locally.',
+              });
+              validated.securityAssessment.overallRating = 'NEEDS_ATTENTION';
+            }
+          }
+
+          // Inject committed secrets if found
+          if (secretScan.hasCommittedSecrets) {
+            validated.securityAssessment.leakedCredentialsDetected = true;
+            validated.securityAssessment.overallRating = 'INSECURE';
+            validated.securityAssessment.flaggedFiles = secretScan.flaggedFiles;
+            for (const file of secretScan.flaggedFiles) {
+              if (!validated.securityAssessment.findings.some((f) => f.fileOrLocation === file)) {
+                validated.securityAssessment.findings.unshift({
+                  category: 'Leaked Credential File',
+                  severity: 'CRITICAL',
+                  fileOrLocation: file,
+                  description: `Sensitive credential file found committed to repository tree: ${file}`,
+                  remediation: `Remove file from git tracking, add to .gitignore, and immediately rotate any keys.`,
+                });
+              }
+            }
+          }
+
+          // Ensure authenticity object exists
+          if (!validated.authenticity) {
+            validated.authenticity = {
+              verdict: treePaths.length > 5 && eco.verifiedEntrypoints.length > 0 ? 'VERIFIED_REAL' : 'PARTIALLY_IMPLEMENTED',
+              summary: `Codebase contains ${treePaths.length} tracked files in ${eco.displayName} with verified entrypoints.`,
+              claimsVsReality: [
+                {
+                  claim: `Implementation in ${eco.displayName}`,
+                  reality: `Confirmed with manifest '${eco.manifestFile || 'detected'}' and entrypoints`,
+                  status: 'CONFIRMED',
+                },
+                {
+                  claim: 'Test suite coverage',
+                  reality: hasTestFiles ? 'Test files detected in tree' : 'No dedicated test files discovered in tree',
+                  status: hasTestFiles ? 'CONFIRMED' : 'DISCREPANCY',
+                },
+              ],
+            };
+          }
+
+          // Cache for future deterministic calls
+          this.summaryCache.set(cacheKey, validated);
+
+          subscriber.next({ type: 'REPO_SUMMARY_COMPLETE', result: validated });
+          subscriber.next({ type: 'PIPELINE_COMPLETE', action: 'summarise', result: validated });
+          subscriber.complete();
+        } catch (err: any) {
+          this.logger.error(`Error in summariseRepo pipeline: ${err.message}`);
+          subscriber.next({ type: 'PIPELINE_ERROR', message: err.message, recoverable: false });
+          subscriber.complete();
         }
-
-        // Cache for future deterministic calls
-        this.summaryCache.set(cacheKey, validated);
-
-        subscriber.next({ type: 'REPO_SUMMARY_COMPLETE', result: validated });
-        subscriber.next({ type: 'PIPELINE_COMPLETE', action: 'summarise', result: validated });
-        subscriber.complete();
-      } catch (err: any) {
-        this.logger.error(`Error in summariseRepo pipeline: ${err.message}`);
-        subscriber.next({ type: 'PIPELINE_ERROR', message: err.message, recoverable: false });
-        subscriber.complete();
-      }
-    })();
-  });
+      })();
+    });
   }
 
   /**
@@ -374,36 +428,27 @@ Search for relevant symbols and inspect file slices, then output the structured 
           );
 
           let parsed: FeatureSummaryOutput;
+          const cleanJson = rawOutput.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
           try {
-            const cleanJson = rawOutput.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
             parsed = JSON.parse(cleanJson);
           } catch (err: any) {
-            this.logger.warn(`Failed to parse feature JSON: ${err.message}. Synthesizing feature fallback.`);
-            parsed = {
-              type: 'feature_summary',
-              featureName: featureQuery,
-              summary: `Implementation of ${featureQuery} in ${eco.displayName}.`,
-              entrypoints: eco.verifiedEntrypoints.slice(0, 3).map((p) => ({
-                filePath: p,
-                lineRange: '1-50',
-                symbolName: featureQuery.replace(/\s+/g, ''),
-                symbolType: 'function',
-                roleInFeature: `Discovered entry file related to ${featureQuery}`,
-              })),
-              mermaidDiagram: `sequenceDiagram\n  autonumber\n  actor User\n  participant API as Endpoint\n  participant Core as ${featureQuery}\n  User->>API: Trigger Request\n  API->>Core: Process Logic\n  Core-->>User: Response`,
-              dependencies: {
-                internalModules: eco.verifiedEntrypoints.slice(0, 2),
-                externalPackages: [eco.displayName],
-              },
-              securityAssessment: {
-                findings: [],
-              },
-              localVerification: {
-                existingTestFiles: [],
-                howToTriggerLocally: `Run application and execute tests or request endpoints associated with ${featureQuery}`,
-                testCommands: [eco.setupGuide.quickstartCommands[eco.setupGuide.quickstartCommands.length - 1]?.command || 'npm test'],
-              },
-            };
+            this.logger.warn(`Failed to parse feature JSON: ${err.message}. Attempting 1-turn repair prompt.`);
+            try {
+              const repairPrompt = `Fix the following invalid JSON so that it strictly parses with JSON.parse. Output ONLY the valid JSON, no markdown fences or prose:\n\n${cleanJson}`;
+              const repaired = await this.geminiStrategy.generateCompletion(repairPrompt);
+              const cleanRepaired = repaired.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+              parsed = JSON.parse(cleanRepaired);
+            } catch (repairErr: any) {
+              this.logger.error(`Model feature JSON repair failed: ${repairErr.message}`);
+              subscriber.next({
+                type: 'PIPELINE_ERROR',
+                code: 'MODEL_SYNTAX_ERROR',
+                message: 'Unable to parse structured feature response. Please click Re-Scan to retry.',
+                recoverable: true,
+              });
+              subscriber.complete();
+              return;
+            }
           }
 
           const validated = this.groundingValidator.validateFeatureSummary(parsed, treePaths);

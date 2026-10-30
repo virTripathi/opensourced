@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { User, UserRepository } from '../auth/user.repository';
+import { ThirdPartyHttpService } from '../logger/third-party-http.service';
 
 @Injectable()
 export class DriveService {
@@ -9,6 +10,7 @@ export class DriveService {
 
   constructor(
     private readonly guardrails: GuardrailsService,
+    private readonly thirdPartyHttp: ThirdPartyHttpService,
     @Optional() private readonly configService?: ConfigService,
     @Optional() private readonly userRepo?: UserRepository
   ) {}
@@ -25,8 +27,9 @@ export class DriveService {
     // Test current token validity first
     if (user.googleAccessToken) {
       try {
-        const testRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+        const testRes = await this.thirdPartyHttp.get('https://www.googleapis.com/drive/v3/about?fields=user', {
           headers: { Authorization: `Bearer ${user.googleAccessToken}` },
+          target: 'GOOGLE_DRIVE_API',
         });
         if (testRes.ok) {
           return user.googleAccessToken;
@@ -50,20 +53,25 @@ export class DriveService {
 
     try {
       this.logger.log(`Refreshing expired Google access token for user '${user.id}'...`);
-      const res = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: user.googleRefreshToken,
-          grant_type: 'refresh_token',
-        }),
-      });
+      const bodyParams = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: user.googleRefreshToken,
+        grant_type: 'refresh_token',
+      }).toString();
+
+      const res = await this.thirdPartyHttp.post(
+        'https://oauth2.googleapis.com/token',
+        bodyParams,
+        {
+          target: 'GOOGLE_OAUTH',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }
+      );
 
       if (res.ok) {
-        const data = (await res.json()) as any;
-        if (data.access_token) {
+        const data = res.data as any;
+        if (data?.access_token) {
           this.logger.log(`Successfully obtained fresh Google access token for user '${user.id}'`);
           // Persist rotated access token to DB
           if (this.userRepo) {
@@ -76,7 +84,7 @@ export class DriveService {
           return data.access_token;
         }
       } else {
-        const err = await res.text();
+        const err = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
         this.logger.warn(`Failed to refresh Google token (${res.status}): ${err}`);
       }
     } catch (err: any) {
@@ -94,36 +102,38 @@ export class DriveService {
     folderName = 'OpenSourced Research'
   ): Promise<string | null> {
     try {
-      const searchRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name)`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name)`;
+      const searchRes = await this.thirdPartyHttp.get(searchUrl, {
+        target: 'GOOGLE_DRIVE_API',
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (searchRes.ok) {
-        const data = (await searchRes.json()) as any;
-        if (data.files && data.files.length > 0) {
+        const data = searchRes.data as any;
+        if (data?.files && data.files.length > 0) {
           return data.files[0].id;
         }
       }
 
       // Create folder if it doesn't exist
-      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const createRes = await this.thirdPartyHttp.post(
+        'https://www.googleapis.com/drive/v3/files',
+        {
           name: folderName,
           mimeType: 'application/vnd.google-apps.folder',
-        }),
-      });
+        },
+        {
+          target: 'GOOGLE_DRIVE_API',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
       if (createRes.ok) {
-        const newFolder = (await createRes.json()) as any;
-        return newFolder.id;
+        const newFolder = createRes.data as any;
+        return newFolder?.id || null;
       }
     } catch (err: any) {
       this.logger.warn(`Could not verify/create '${folderName}' folder: ${err.message}`);
@@ -176,32 +186,31 @@ export class DriveService {
           scan.sanitizedText +
           closeDelimiter;
 
-        const response = await fetch(
-          'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,parents',
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${effectiveToken}`,
-              'Content-Type': `multipart/related; boundary=${boundary}`,
-            },
-            body: multipartRequestBody,
-          }
-        );
+        const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,parents';
+        const uploadHeaders = {
+          Authorization: `Bearer ${effectiveToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        };
+
+        const response = await this.thirdPartyHttp.post(uploadUrl, multipartRequestBody, {
+          target: 'GOOGLE_DRIVE_API',
+          headers: uploadHeaders,
+        });
 
         if (response.ok) {
-          const driveData = (await response.json()) as any;
+          const driveData = response.data as any;
           const directFileLink =
-            driveData.webViewLink ||
-            `https://drive.google.com/file/d/${driveData.id}/view?usp=drivesdk`;
+            driveData?.webViewLink ||
+            `https://drive.google.com/file/d/${driveData?.id}/view?usp=drivesdk`;
 
           this.logger.log(
-            `Google Drive upload successful. File: "${fileName}" (ID: ${driveData.id}) in folder: "OpenSourced Research" (${folderId})`
+            `Google Drive upload successful. File: "${fileName}" (ID: ${driveData?.id}) in folder: "OpenSourced Research" (${folderId})`
           );
 
           return {
             success: true,
             provider: 'google_drive',
-            fileId: driveData.id,
+            fileId: driveData?.id,
             folder: 'OpenSourced Research',
             folderId: folderId || undefined,
             webViewLink: directFileLink,
@@ -211,7 +220,7 @@ export class DriveService {
             secretsRedactedCount: scan.detectedSecrets.length,
           };
         } else {
-          const errText = await response.text();
+          const errText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
           this.logger.warn(`Google Drive API upload responded with HTTP ${response.status}: ${errText}`);
         }
       } catch (err: any) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GitHubContext, ServerSentEvent } from '@opensourced/common/types';
 import { parseGitHubUrl } from '@opensourced/common';
-import { CheckCircle2, ArrowRight, X } from 'lucide-react';
+import { CheckCircle2, ArrowRight, X, Sparkles, AlertCircle } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useReportCache, StoredReport } from '../hooks/useReportCache';
@@ -10,7 +10,6 @@ import { Header } from './components/Header';
 import { ContextCard } from './components/ContextCard';
 import { WisprVoiceBar } from './components/WisprVoiceBar';
 import { ActionCards } from './components/ActionCards';
-import { OutputViewer } from './components/OutputViewer';
 import { ReportsScreen } from './components/ReportsScreen';
 import { formatFeatureSummaryToMarkdown, formatRepoSummaryToMarkdown } from '../utils/format-summary';
 import { EXTENSION_CONFIG } from '../config/constants';
@@ -48,6 +47,8 @@ export default function App() {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [hasProceededWithoutAuth, setHasProceededWithoutAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isBackendOffline, setIsBackendOffline] = useState(false);
+  const [actionError, setActionError] = useState<{ title: string; message: string } | null>(null);
 
   // Completed Action Notification in Workspace
   const [completedNotification, setCompletedNotification] = useState<{
@@ -69,6 +70,19 @@ export default function App() {
       }
     }
   }, [isLoading, userProfile, authToken, hasProceededWithoutAuth, syncWithBackend]);
+
+  // Proactively verify backend reachability on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
+      .then((res) => {
+        if (res.ok) {
+          setIsBackendOffline(false);
+        }
+      })
+      .catch(() => {
+        setIsBackendOffline(true);
+      });
+  }, []);
 
   const [isReportSaved, setIsReportSaved] = useState(false);
 
@@ -140,6 +154,15 @@ export default function App() {
     return context ? `${context.owner}/${context.repo}` : '';
   }, [context]);
 
+  // Reset selected report ID when switching to a different repository
+  const previousRepoRef = useRef<string>(contextRepoFullName);
+  useEffect(() => {
+    if (previousRepoRef.current !== contextRepoFullName) {
+      previousRepoRef.current = contextRepoFullName;
+      setSelectedReportId(null);
+    }
+  }, [contextRepoFullName]);
+
   const contextReports = useMemo(() => {
     if (!contextRepoFullName) return [];
     return getReportsForRepo(contextRepoFullName, context?.issueNumber);
@@ -165,8 +188,12 @@ export default function App() {
       const found = reports.find((r) => r.id === selectedReportId);
       if (found) return found;
     }
-    if (contextReports.length > 0) return contextReports[0];
-    if (reports.length > 0) return reports[0];
+    // Prefer newest/most relevant report for context
+    if (contextReports.length > 0) {
+      const latest = contextReports.find((r) => r.isLatest);
+      return latest || contextReports[0];
+    }
+    // If the active repository has 0 reports, return null so ReportsScreen displays the Directory & Selector
     return null;
   }, [selectedReportId, contextReports, reports]);
 
@@ -290,12 +317,26 @@ export default function App() {
         credentials: 'include',
         body: JSON.stringify({ repoName: context?.repo || 'my-project' }),
       });
-      const data = await res.json();
-      if (data.selectedPath) {
-        setClonePath(data.selectedPath);
-        setStreamLogs((prev) => [...prev, `[PICKER] Selected path: ${data.selectedPath}`]);
+      if (res.ok) {
+        setIsBackendOffline(false);
+        const data = await res.json();
+        if (data.selectedPath) {
+          setClonePath(data.selectedPath);
+          setStreamLogs((prev) => [...prev, `[PICKER] Selected path: ${data.selectedPath}`]);
+        }
+      } else {
+        if (res.status >= 500) setIsBackendOffline(true);
+        setActionError({
+          title: 'Server Error',
+          message: 'Backend server is unreachable. Please retry after some time.',
+        });
       }
     } catch {
+      setIsBackendOffline(true);
+      setActionError({
+        title: 'Server Error',
+        message: 'Backend server is unreachable. Please retry after some time.',
+      });
       setClonePath(context ? `~/Projects/${context.repo}` : EXTENSION_CONFIG.defaultProjectsDir);
     }
   };
@@ -337,13 +378,14 @@ export default function App() {
   // Git Clone execution
   const handleExecuteClone = async () => {
     if (!context) {
-      setStreamLogs((prev) => [
-        ...prev,
-        '[GIT NOTICE] No GitHub repository detected in active tab. Please navigate to a GitHub repo to clone.',
-      ]);
+      setActionError({
+        title: 'No Repository Detected',
+        message: 'Please navigate to a GitHub repository or issue tab to clone.',
+      });
       return;
     }
 
+    setActionError(null);
     setActiveAction('clone');
     setCloneProgress(5);
     setCloneStatus('Initializing clone...');
@@ -369,7 +411,22 @@ export default function App() {
         }),
       });
 
-      if (!response.body) return;
+      setIsBackendOffline(false);
+
+      if (!response.ok) {
+        if (response.status >= 500) setIsBackendOffline(true);
+        setActionError({
+          title: 'Server Error',
+          message: 'Backend server is unreachable. Please retry after some time.',
+        });
+        setActiveAction(null);
+        return;
+      }
+
+      if (!response.body) {
+        setActiveAction(null);
+        return;
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
@@ -408,7 +465,9 @@ export default function App() {
                 setStreamLogs((prev) => [...prev, `[ERROR] ${event.message}`]);
                 setActiveAction(null);
               }
-            } catch {}
+            } catch (parseErr: any) {
+              console.warn('[SSE Clone] Non-JSON stream chunk:', line, parseErr);
+            }
           }
         }
       }
@@ -416,6 +475,11 @@ export default function App() {
       if (err.name === 'AbortError') {
         return;
       }
+      setIsBackendOffline(true);
+      setActionError({
+        title: 'Server Error',
+        message: 'Backend server is unreachable. Please retry after some time.',
+      });
       setCloneStatus(`Connection error: ${err.message}`);
       setStreamLogs((prev) => [...prev, `[ERROR] Failed to connect: ${err.message}`]);
       setActiveAction(null);
@@ -430,13 +494,14 @@ export default function App() {
     customQuery?: string
   ) => {
     if (!context) {
-      setStreamLogs((prev) => [
-        ...prev,
-        `[PIPELINE NOTICE] Cannot run ${actionType}: Navigate to a GitHub repository or issue first.`,
-      ]);
+      setActionError({
+        title: 'No Repository Detected',
+        message: 'Please navigate to a GitHub repository or issue tab to run this action.',
+      });
       return;
     }
 
+    setActionError(null);
     setActiveAction(actionType);
     setLatestResult('');
     setDriveUrl(null);
@@ -459,7 +524,29 @@ export default function App() {
         body: JSON.stringify({ action: actionType, context: requestPayloadContext }),
       });
 
-      if (!response.body) return;
+      setIsBackendOffline(false);
+
+      if (!response.ok) {
+        if (response.status >= 500) setIsBackendOffline(true);
+        let errorMsg = 'Backend server is unreachable. Please retry after some time.';
+        try {
+          const errData = await response.json();
+          if (errData.message && response.status < 500) {
+            errorMsg = errData.message;
+          }
+        } catch {}
+        setActionError({
+          title: 'Action Failed',
+          message: errorMsg,
+        });
+        setActiveAction(null);
+        return;
+      }
+
+      if (!response.body) {
+        setActiveAction(null);
+        return;
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
@@ -520,43 +607,75 @@ export default function App() {
                   }
                 }
 
-                // Persist completed report to cache for instant dual affordance & Reports screen
+                // Persist completed report to cache with query context and auto-navigate to report reader
                 if (accumulatedResult.trim()) {
-                  const actionLabels: Record<string, string> = {
-                    scan_issue: `Entrypoint Scan for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
-                    owasp_check: `OWASP Security Audit for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
-                    draft_pr: `PR Description Draft for ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`,
-                    summarise: `Repository Intelligence for ${context.repo}`,
-                    summarise_feature: `Feature: ${customQuery || context.title || 'Summary'} (${context.repo})`,
-                  };
+                  const promptSummary = customQuery
+                    ? customQuery.length > 50
+                      ? `${customQuery.slice(0, 47)}...`
+                      : customQuery
+                    : context.title || (context.issueNumber ? `Issue #${context.issueNumber}` : undefined);
 
-                  saveReport({
-                    title: actionLabels[actionType] || `Analysis for ${context.repo}`,
-                    repo: `${context.owner}/${context.repo}`,
-                    issueNumber: context.issueNumber,
-                    action: actionType,
-                    content: accumulatedResult,
-                    streamLogs: [...streamLogs],
-                  }).then((saved) => {
+                  const reportTitle =
+                    actionType === 'summarise_feature'
+                      ? `Feature: ${promptSummary || 'Exploration'}`
+                      : actionType === 'summarise'
+                      ? `Architecture: ${context.repo}`
+                      : actionType === 'scan_issue'
+                      ? `Entrypoints: ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`
+                      : actionType === 'owasp_check'
+                      ? `Safety & Hygiene: ${context.repo}`
+                      : `PR Draft: ${context.repo}`;
+
+                  saveReport(
+                    {
+                      title: reportTitle,
+                      repo: `${context.owner}/${context.repo}`,
+                      issueNumber: context.issueNumber,
+                      action: actionType,
+                      query: promptSummary,
+                      content: accumulatedResult,
+                      streamLogs: [...streamLogs],
+                      branch: context.branch,
+                    },
+                    { replaceExisting: true }
+                  ).then((saved) => {
                     setSelectedReportId(saved.id);
                     setIsReportSaved(true);
                     setCompletedNotification({
-                      message: `${actionLabels[actionType] || 'Analysis'} generated successfully!`,
+                      message: `${reportTitle} ${saved.version ? `v${saved.version} ` : ''}ready!`,
                       actionKey: actionType,
                       reportId: saved.id,
                     });
+                    // Move completely to dedicated View Report page
+                    setCurrentScreen('reports');
                   });
                 }
               } else if (event.type === 'PIPELINE_ERROR') {
                 setStreamLogs((prev) => [...prev, `[ERROR] ${event.message}`]);
+                setActionError({
+                  title:
+                    event.code === 'RATE_LIMIT_EXCEEDED'
+                      ? 'Rate Limit Reached'
+                      : event.code === 'MODEL_SYNTAX_ERROR'
+                      ? 'Model Syntax Error'
+                      : 'Pipeline Error',
+                  message: event.message || 'The pipeline encountered an error.',
+                });
                 setActiveAction(null);
               }
-            } catch {}
+            } catch (parseErr: any) {
+              console.warn('[SSE Stream] Non-JSON stream chunk:', line, parseErr);
+            }
           }
         }
       }
     } catch (err: any) {
+      setIsBackendOffline(true);
       setStreamLogs((prev) => [...prev, `[ERROR] Action failed: ${err.message}`]);
+      setActionError({
+        title: 'Server Error',
+        message: 'Backend server is unreachable. Please retry after some time.',
+      });
       setActiveAction(null);
     }
   };
@@ -564,10 +683,14 @@ export default function App() {
   // Google Drive Export
   const handleSaveToDrive = async () => {
     if (!context) {
-      setStreamLogs((prev) => [...prev, '[DRIVE NOTICE] No active repository context to export.']);
+      setActionError({
+        title: 'No Repository Detected',
+        message: 'No active repository context to export.',
+      });
       return;
     }
 
+    setActionError(null);
     setActiveAction('drive');
     setStreamLogs((prev) => [...prev, `[DRIVE] Exporting session artifact to Google Drive (drive.file)...`]);
 
@@ -581,6 +704,15 @@ export default function App() {
           content: (activeReportToView?.content || latestResult) || 'OpenSourced Analysis Artifact for ' + context.repo,
         }),
       });
+      setIsBackendOffline(false);
+      if (!res.ok) {
+        if (res.status >= 500) setIsBackendOffline(true);
+        setActionError({
+          title: 'Export Failed',
+          message: 'Backend server is unreachable. Please retry after some time.',
+        });
+        return;
+      }
       const data = await res.json();
       if (data.webViewLink) {
         setDriveUrl(data.webViewLink);
@@ -591,6 +723,11 @@ export default function App() {
         ]);
       }
     } catch (err: any) {
+      setIsBackendOffline(true);
+      setActionError({
+        title: 'Export Failed',
+        message: 'Backend server is unreachable. Please retry after some time.',
+      });
       setStreamLogs((prev) => [...prev, `[DRIVE ERROR] ${err.message}`]);
     } finally {
       setActiveAction(null);
@@ -624,7 +761,35 @@ export default function App() {
   };
 
   const handleSearchQuery = (query: string) => {
-    handleTriggerAction('summarise_feature', query);
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    // Check if query is targeting an issue number (e.g. #42, issue 42, or plain 42)
+    const issueMatch = trimmed.match(/^(?:issue\s*#?|#)?(\d+)$/i);
+    if (issueMatch && issueMatch[1]) {
+      const issueNum = parseInt(issueMatch[1], 10);
+      if (context) {
+        context.issueNumber = issueNum;
+      }
+      handleTriggerAction('scan_issue', trimmed);
+      return;
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (lower === 'overview' || lower === 'summary' || lower === 'architecture' || lower === 'summarize') {
+      handleTriggerAction('summarise');
+      return;
+    }
+    if (lower.includes('safety') || lower.includes('security') || lower.includes('audit')) {
+      handleTriggerAction('owasp_check');
+      return;
+    }
+    if (lower.startsWith('pr ') || lower === 'pr' || lower.includes('pull request')) {
+      handleTriggerAction('draft_pr');
+      return;
+    }
+
+    handleTriggerAction('summarise_feature', trimmed);
   };
 
   const handleClearOutput = () => {
@@ -663,6 +828,8 @@ export default function App() {
       <ReportsScreen
         activeReport={activeReportToView}
         availableReports={contextReports.length > 0 ? contextReports : reports}
+        allReports={reports}
+        currentRepo={contextRepoFullName || activeReportToView?.repo || null}
         onSelectReport={(rep) => setSelectedReportId(rep.id)}
         onBackToWorkspace={() => setCurrentScreen('workspace')}
         onSaveToDrive={handleSaveToDrive}
@@ -693,6 +860,7 @@ export default function App() {
         setThemeMode={setThemeMode}
         toggleTheme={toggleTheme}
         activeAction={activeAction}
+        isBackendOffline={isBackendOffline}
         userProfile={userProfile}
         onGitHubLogin={handleGitHubLogin}
         onGoogleLogin={handleGoogleLogin}
@@ -702,6 +870,30 @@ export default function App() {
         reportsCount={contextReports.length}
         onNavigate={(screen) => setCurrentScreen(screen)}
       />
+
+      {/* Action / Backend Error Alert Banner */}
+      {actionError && (
+        <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-start justify-between text-xs transition-all shadow-2xs">
+          <div className="flex items-start gap-2 min-w-0 pr-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="font-semibold text-rose-950 dark:text-rose-200 truncate">
+                {actionError.title}
+              </div>
+              <div className="text-[11px] text-rose-800 dark:text-rose-300 leading-snug">
+                {actionError.message}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setActionError(null)}
+            className="p-1 text-rose-700 dark:text-rose-300 hover:text-rose-950 dark:hover:text-rose-100 flex-shrink-0"
+            title="Dismiss error"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
       {/* Completed Report Banner in Workspace (Instant 1-Click Navigation) */}
       {completedNotification && (
@@ -770,18 +962,30 @@ export default function App() {
         reportsByAction={reportsByAction}
       />
 
-      {/* Live Telemetry Output (when executing) or Previous Output */}
-      {(activeAction !== null || latestResult || streamLogs.length > 0) && (
-        <OutputViewer
-          latestResult={latestResult}
-          streamLogs={streamLogs}
-          activeAction={activeAction}
-          driveUrl={driveUrl}
-          onClear={handleClearOutput}
-          onSaveReport={latestResult ? handleSaveUserReport : undefined}
-          isSaved={isReportSaved}
-          isDark={resolvedTheme === 'dark'}
-        />
+      {/* Active In-Flight Analysis Indicator (Sleek, Minimal & Zero-Clutter) */}
+      {activeAction && (
+        <div className="bg-white dark:bg-[#202020] border border-emerald-300 dark:border-emerald-800 rounded-lg p-3 flex items-center justify-between text-xs text-[#37352f] dark:text-[#ebebeb] shadow-2xs animate-pulse">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <Sparkles className="w-3.5 h-3.5 animate-spin" />
+            </div>
+            <div>
+              <div className="font-semibold text-emerald-700 dark:text-emerald-300">
+                {activeAction === 'summarise_feature'
+                  ? 'Analyzing Feature...'
+                  : activeAction === 'summarise'
+                  ? 'Analyzing Repository Architecture...'
+                  : 'Scanning Codebase...'}
+              </div>
+              <div className="text-[11px] text-[#787774] dark:text-[#9b9a97]">
+                Generating Mermaid sequence diagram & entrypoint mappings...
+              </div>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
+            Running
+          </span>
+        </div>
       )}
     </div>
   );

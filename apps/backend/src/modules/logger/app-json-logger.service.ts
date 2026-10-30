@@ -260,6 +260,106 @@ export class AppJsonLoggerService implements LoggerService, OnApplicationShutdow
     });
   }
 
+  logGeminiPrompt(data: {
+    model: string;
+    turn?: number;
+    prompt?: string;
+    contents?: any;
+    options?: Record<string, any>;
+  }) {
+    this.writeEntry({
+      level: 'INFO',
+      event: 'GEMINI_PROMPT_OUTGOING',
+      context: 'GeminiProviderStrategy',
+      http: {
+        target: 'GOOGLE_GEMINI',
+        method: 'generateContent',
+        url: `https://generativelanguage.googleapis.com/v1beta/models/${data.model}`,
+        attempt: data.turn || 1,
+      },
+      payload: {
+        model: data.model,
+        turn: data.turn,
+        prompt: data.prompt,
+        contents: data.contents,
+        options: data.options,
+      },
+    });
+  }
+
+  logGeminiResponse(data: {
+    model: string;
+    turn?: number;
+    durationMs: number;
+    statusCode?: number;
+    candidateCount?: number;
+    functionCalls?: Array<{ name: string; args: Record<string, any> }>;
+    textSnippet?: string;
+    error?: string;
+  }) {
+    this.writeEntry({
+      level: data.error || (data.statusCode && data.statusCode >= 400) ? 'ERROR' : 'INFO',
+      event: 'GEMINI_RESPONSE_INCOMING',
+      context: 'GeminiProviderStrategy',
+      http: {
+        target: 'GOOGLE_GEMINI',
+        method: 'generateContent',
+        url: `https://generativelanguage.googleapis.com/v1beta/models/${data.model}`,
+        statusCode: data.statusCode || (data.error ? 500 : 200),
+        durationMs: data.durationMs,
+        attempt: data.turn || 1,
+      },
+      payload: {
+        model: data.model,
+        turn: data.turn,
+        candidateCount: data.candidateCount,
+        functionCalls: data.functionCalls,
+        textSnippet: data.textSnippet,
+        error: data.error,
+      },
+      error: data.error ? { message: data.error } : undefined,
+    });
+  }
+
+  logGeminiToolCall(data: {
+    tool: string;
+    turn: number;
+    params: Record<string, any>;
+  }) {
+    this.writeEntry({
+      level: 'INFO',
+      event: 'GEMINI_TOOL_CALL',
+      context: 'GeminiProviderStrategy',
+      payload: {
+        tool: data.tool,
+        turn: data.turn,
+        params: data.params,
+      },
+    });
+  }
+
+  logGeminiToolResult(data: {
+    tool: string;
+    turn: number;
+    durationMs: number;
+    result: any;
+    error?: string;
+  }) {
+    this.writeEntry({
+      level: data.error ? 'WARN' : 'INFO',
+      event: 'GEMINI_TOOL_RESULT',
+      context: 'GeminiProviderStrategy',
+      payload: {
+        tool: data.tool,
+        turn: data.turn,
+        durationMs: data.durationMs,
+        result: data.result,
+        error: data.error,
+      },
+      error: data.error ? { message: data.error } : undefined,
+    });
+  }
+
   // ============================================================================
   // NestJS LoggerService standard implementations
   // ============================================================================

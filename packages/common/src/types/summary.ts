@@ -233,7 +233,7 @@ export type SummariseFeatureRequest = z.infer<typeof SummariseFeatureRequestSche
 // ============================================================================
 
 export const SecurityFindingSchema = z.object({
-  category: z.string().describe('e.g. Hardcoded Secret, Insecure Dependency, Missing Auth Guard, OWASP A01'),
+  category: z.string().describe('e.g. Hardcoded Secret, Insecure Dependency, Missing Auth Guard, Malicious Script Hook'),
   severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL']),
   fileOrLocation: z.string().describe('File path or configuration where risk exists'),
   description: z.string().describe('Explanation of the vulnerability or risk'),
@@ -243,13 +243,31 @@ export const SecurityFindingSchema = z.object({
 export type SecurityFinding = z.infer<typeof SecurityFindingSchema>;
 
 export const SecurityAssessmentSchema = z.object({
-  overallRating: z.enum(['SECURE', 'LOW_RISK', 'MODERATE_RISK', 'INSECURE']),
+  overallRating: z.enum(['SECURE', 'LOW_RISK', 'MODERATE_RISK', 'INSECURE', 'CLEAN', 'NEEDS_ATTENTION', 'HIGH_RISK']),
   leakedCredentialsDetected: z.boolean(),
   flaggedFiles: z.array(z.string()).default([]),
+  suspiciousScripts: z.array(z.string()).default([]),
   findings: z.array(SecurityFindingSchema),
 });
 
 export type SecurityAssessment = z.infer<typeof SecurityAssessmentSchema>;
+
+// Purpose & Authenticity Verification: README Claims vs. Code Reality
+export const RepoClaimVsRealitySchema = z.object({
+  claim: z.string().describe('Key feature or claim asserted in README'),
+  reality: z.string().describe('Actual code implementation state found in repository'),
+  status: z.enum(['CONFIRMED', 'DISCREPANCY', 'UNVERIFIED']),
+});
+
+export type RepoClaimVsReality = z.infer<typeof RepoClaimVsRealitySchema>;
+
+export const RepoAuthenticitySchema = z.object({
+  verdict: z.enum(['VERIFIED_REAL', 'PARTIALLY_IMPLEMENTED', 'POTENTIAL_STUB_OR_ABANDONED']),
+  summary: z.string(),
+  claimsVsReality: z.array(RepoClaimVsRealitySchema).default([]),
+});
+
+export type RepoAuthenticity = z.infer<typeof RepoAuthenticitySchema>;
 
 export const SetupCommandSchema = z.object({
   step: z.string(),
@@ -309,6 +327,7 @@ export const RepoSummaryOutputSchema = z.object({
     ),
   }),
   entryFiles: z.array(EntryFileSchema),
+  authenticity: RepoAuthenticitySchema.optional(),
   securityAssessment: SecurityAssessmentSchema,
   localSetup: LocalSetupGuideSchema,
 });

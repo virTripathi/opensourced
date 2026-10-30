@@ -282,6 +282,68 @@ async function runLoggerAndIdempotencyTests() {
     }
   });
 
+  await test('AppJsonLoggerService logs Gemini prompt, response, tool call, and tool result with redaction', async () => {
+    const testLogPath = path.resolve(__dirname, '../../../test-gemini-logging.log.json');
+    if (fs.existsSync(testLogPath)) fs.unlinkSync(testLogPath);
+    process.env.LOG_FILE_PATH = testLogPath;
+
+    const logger = new AppJsonLoggerService();
+
+    await RequestContextService.run({ traceId: 'trc_gemini_test_1', startTime: Date.now() }, async () => {
+      logger.logGeminiPrompt({
+        model: 'gemini-1.5-flash',
+        turn: 1,
+        prompt: 'Analyze repo with api_key=superSecretKey123',
+        contents: [{ role: 'user', parts: [{ text: 'secret token=ghp_secretTokenHere1234567890' }] }],
+      });
+
+      logger.logGeminiResponse({
+        model: 'gemini-1.5-flash',
+        turn: 1,
+        durationMs: 350,
+        functionCalls: [{ name: 'get_repo_overview', args: { token: 'ghp_secretTokenHere1234567890' } }],
+      });
+
+      logger.logGeminiToolCall({
+        tool: 'get_repo_overview',
+        turn: 1,
+        params: { client_secret: 'shh_secret_param' },
+      });
+
+      logger.logGeminiToolResult({
+        tool: 'get_repo_overview',
+        turn: 1,
+        durationMs: 45,
+        result: { name: 'cal.com', authorization: 'Bearer secret_token_xyz' },
+      });
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.ok(fs.existsSync(testLogPath), 'Log file must be created on disk');
+    const content = fs.readFileSync(testLogPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    assert.strictEqual(lines.length, 4, 'Must have recorded 4 Gemini structured log entries');
+
+    const [promptEntry, respEntry, toolCallEntry, toolResultEntry] = lines.map((l) => JSON.parse(l));
+
+    assert.strictEqual(promptEntry.event, 'GEMINI_PROMPT_OUTGOING');
+    assert.strictEqual(respEntry.event, 'GEMINI_RESPONSE_INCOMING');
+    assert.strictEqual(toolCallEntry.event, 'GEMINI_TOOL_CALL');
+    assert.strictEqual(toolResultEntry.event, 'GEMINI_TOOL_RESULT');
+
+    for (const line of lines) {
+      assert.ok(!line.includes('superSecretKey123'), 'Sensitive api_key leaked in Gemini logs!');
+      assert.ok(!line.includes('ghp_secretTokenHere1234567890'), 'Sensitive GitHub token leaked in Gemini logs!');
+      assert.ok(!line.includes('shh_secret_param'), 'Sensitive client_secret leaked in tool call logs!');
+      assert.ok(!line.includes('secret_token_xyz'), 'Bearer token leaked in tool result logs!');
+    }
+
+    fs.unlinkSync(testLogPath);
+    delete process.env.LOG_FILE_PATH;
+  });
+
   // --------------------------------------------------------------------------
   // Group 5: Concurrency & Idempotency Guards
   // --------------------------------------------------------------------------

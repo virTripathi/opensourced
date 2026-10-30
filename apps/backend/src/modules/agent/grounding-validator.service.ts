@@ -26,13 +26,10 @@ export class GroundingValidatorService {
         return exists;
       });
 
-      // If all were pruned, keep at least verified entrypoints from tree
+      // If all were pruned, log an honest warning and leave empty rather than fabricating arbitrary tree files
       if (summary.entryFiles.length === 0 && originalCount > 0) {
-        summary.entryFiles = verifiedTreePaths.slice(0, 3).map((p) => ({
-          path: p,
-          description: 'Core repository file detected from repository root',
-          keyExportsOrSymbols: [],
-        }));
+        this.logger.warn(`All ${originalCount} model candidate entrypoints were hallucinated and pruned against real git tree.`);
+        summary.entryFiles = [];
       }
     }
 

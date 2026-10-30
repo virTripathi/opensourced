@@ -175,7 +175,7 @@ export function formatRepoSummaryToMarkdown(
     ? repoSum.securityAssessment.findings
         .map((f: any) => `- **[${f.severity || 'INFO'}] ${f.category || 'Finding'}** (\`${f.fileOrLocation || 'tree'}\`): ${f.description || ''}\n  - *Remediation:* ${f.remediation || 'Inspect code'}`)
         .join('\n')
-    : '- No credential leaks or high-risk findings detected in tree scan.';
+    : '- 🛡️ Verified clean: No credential leaks or suspicious install hooks detected.';
 
   const setupCommands = Array.isArray(repoSum.localSetup?.quickstartCommands) ? repoSum.localSetup.quickstartCommands : [];
   const setupSteps = setupCommands.length > 0
@@ -184,6 +184,39 @@ export function formatRepoSummaryToMarkdown(
         .join('\n')
     : '`npm install && npm start`';
 
+  // Purpose & Authenticity section
+  const auth = repoSum.authenticity;
+  let authenticityBlock = '';
+  if (auth) {
+    const verdictLabel =
+      auth.verdict === 'VERIFIED_REAL'
+        ? '✅ Verified Real Implementation'
+        : auth.verdict === 'PARTIALLY_IMPLEMENTED'
+        ? '⚠️ Partially Implemented / Work-in-Progress'
+        : '🚨 Potential Stub or Incomplete Repo';
+
+    const claimsTable = Array.isArray(auth.claimsVsReality) && auth.claimsVsReality.length > 0
+      ? `\n\n| Stated Claim | Actual Code Reality | Status |\n| :--- | :--- | :--- |\n` +
+        auth.claimsVsReality
+          .map((c: any) => `| ${c.claim} | ${c.reality} | **${c.status}** |`)
+          .join('\n')
+      : '';
+
+    authenticityBlock = `## Purpose & Reality Check
+> **Verdict:** **${verdictLabel}**  
+> ${auth.summary || ''}
+${claimsTable}
+`;
+  }
+
+  const safetyRating = repoSum.securityAssessment?.overallRating || 'CLEAN';
+  const safetyBadge =
+    safetyRating === 'CLEAN' || safetyRating === 'SECURE'
+      ? '🛡️ Safe for Local Development'
+      : safetyRating === 'NEEDS_ATTENTION' || safetyRating === 'LOW_RISK' || safetyRating === 'MODERATE_RISK'
+      ? '⚠️ Needs Attention Before Local Run'
+      : '🚨 High-Risk Findings Detected';
+
   return `# ${repoTitle} — Repository Intelligence
 
 **Ecosystem:** ${ecosystem} | **Language:** ${primaryLanguage} | **License:** ${license}
@@ -191,6 +224,7 @@ export function formatRepoSummaryToMarkdown(
 ## Purpose
 ${repoSum.purpose || repoSum.overview || 'Repository overview'}
 
+${authenticityBlock}
 ## Architecture
 ${repoSum.architecture?.overview || ''}
 
@@ -199,13 +233,14 @@ ${rawDiagram}
 \`\`\`
 
 ${components ? `### Core Modules\n${components}\n` : ''}
-## Entry Files
+## Verified Code Entrypoints
 ${entryFilesList}
 
 ## Local Quickstart & Setup
 ${setupSteps}
 
-## Security Assessment
+## Local Safety & Hygiene
+**Status:** **${safetyBadge}**
 ${findings}
 `;
 }

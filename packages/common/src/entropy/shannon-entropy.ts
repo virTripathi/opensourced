@@ -55,13 +55,17 @@ export function scanAndRedactSecrets(text: string): SecretScanResult {
     }
   }
 
-  // 2. High entropy token detection on words longer than 24 chars
+  // 2. High entropy token detection on words longer than 28 chars
   const words = sanitized.split(/\s+/);
   for (const word of words) {
     const cleanWord = word.replace(/[^a-zA-Z0-9_-]/g, '');
     if (cleanWord.length > 28) {
+      // Exclude standard git commit SHAs (40 hex characters) or SHA-256 hashes
+      const isPureHexHash = /^[0-9a-f]{32,64}$/i.test(cleanWord);
+      if (isPureHexHash) continue;
+
       const entropy = calculateShannonEntropy(cleanWord);
-      if (entropy > 4.6) {
+      if (entropy > 4.75) {
         detectedSecrets.push({ type: 'High-Entropy Secret Token', match: `${cleanWord.slice(0, 4)}...` });
         sanitized = sanitized.replaceAll(cleanWord, '[REDACTED_HIGH_ENTROPY_TOKEN]');
       }

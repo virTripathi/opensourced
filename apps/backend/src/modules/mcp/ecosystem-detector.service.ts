@@ -116,15 +116,23 @@ export class EcosystemDetectorService {
       }
     }
 
-    // 4. Sample environment file detection
-    const sampleEnvFile = filePaths.find(
-      (p) =>
-        p === '.env.example' ||
-        p === '.env.sample' ||
-        p === '.env.template' ||
-        p.endsWith('/.env.example') ||
-        p.endsWith('/.env.sample')
-    );
+    // 4. Sample environment file detection (including modern dist, template, and monorepo conventions)
+    const sampleEnvFile = filePaths.find((p) => {
+      const lower = p.toLowerCase();
+      const base = lower.split('/').pop() || lower;
+      return (
+        base === '.env.example' ||
+        base === '.env.sample' ||
+        base === '.env.template' ||
+        base === '.env.dist' ||
+        base === '.env.defaults' ||
+        base === 'env.example' ||
+        base === 'secrets.example.yaml' ||
+        base === 'secrets.example.json' ||
+        base === 'config.example.json' ||
+        base === 'config.example.yaml'
+      );
+    });
 
     // 5. Build deterministic setup commands
     const quickstartCommands: SetupCommand[] = [

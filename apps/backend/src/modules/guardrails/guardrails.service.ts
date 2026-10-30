@@ -7,8 +7,18 @@ import {
   SecretScanResult,
 } from '@opensourced/common';
 
+/**
+ * Detects whether a path represents a harmless template, example, or sample config.
+ * These files contain placeholder keys and should never be blocked from model reasoning
+ * or falsely flagged as active credential leaks.
+ */
+export function isTemplateConfigFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return /(example|sample|template|defaults?|dist|fixtures?)/i.test(lower);
+}
+
 const SENSITIVE_FILE_PATTERNS = [
-  /(^|\/)\.env(\.(?!example|sample|template)[^/]+)?$/i,
+  /(^|\/)\.env(\.[^/]+)?$/i,
   /(^|\/)id_rsa(\.pub)?$/i,
   /(^|\/)id_ed25519(\.pub)?$/i,
   /\.(pem|key|p12|pfx|pkcs12)$/i,
@@ -42,6 +52,7 @@ export class GuardrailsService {
 
   /**
    * Scans full repository file tree for committed credentials, keys, and private env files.
+   * Universal exemption for template and example configuration files.
    */
   scanRepoTreeForSecrets(filePaths: string[]): { hasCommittedSecrets: boolean; flaggedFiles: string[] } {
     const flaggedFiles: string[] = [];
@@ -64,8 +75,43 @@ export class GuardrailsService {
 
   /**
    * Checks if a target file path is sensitive/blocked from model ingestion.
+   * Exempts all template, example, sample, default, and dist configuration files.
    */
   isBlockedSensitivePath(path: string): boolean {
+    if (isTemplateConfigFile(path)) {
+      return false;
+    }
     return SENSITIVE_FILE_PATTERNS.some((pattern) => pattern.test(path));
+  }
+
+  /**
+   * Scans package manifest content (e.g. package.json) for suspicious/dangerous lifecycle hooks
+   * (e.g., preinstall / postinstall running curl/wget pipe to bash, eval, obfuscated commands).
+   */
+  scanManifestForSuspiciousScripts(manifestContent: string): { hasSuspiciousScripts: boolean; findings: string[] } {
+    const findings: string[] = [];
+    if (!manifestContent) return { hasSuspiciousScripts: false, findings };
+
+    const dangerousPatterns = [
+      { pattern: /(curl|wget)\s+[^|]+\|\s*(ba)?sh/i, description: 'Remote script execution via curl/wget pipe to shell' },
+      { pattern: /powershell(\.exe)?\s+(-enc|-encodedcommand)/i, description: 'Obfuscated PowerShell encoded command' },
+      { pattern: /eval\s*\(\s*Buffer\.from/i, description: 'Obfuscated base64 eval execution in package script' },
+      { pattern: /rm\s+-rf\s+(\/|~|\$HOME|\.\.)/i, description: 'Destructive filesystem deletion command in script' },
+    ];
+
+    for (const { pattern, description } of dangerousPatterns) {
+      if (pattern.test(manifestContent)) {
+        findings.push(description);
+      }
+    }
+
+    if (findings.length > 0) {
+      this.logger.warn(`⚠️ High-Risk Script Hook Detected in Manifest: ${findings.join(', ')}`);
+    }
+
+    return {
+      hasSuspiciousScripts: findings.length > 0,
+      findings,
+    };
   }
 }

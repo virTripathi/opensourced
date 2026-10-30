@@ -24,7 +24,7 @@ export interface HttpResponse<T = any> {
 export class ThirdPartyHttpService {
   private readonly consoleLogger = new Logger(ThirdPartyHttpService.name);
 
-  constructor(private readonly jsonLogger: AppJsonLoggerService) {}
+  constructor(private readonly jsonLogger: AppJsonLoggerService) { }
 
   /**
    * Executes an outbound HTTP request with automatic tracing, redacted JSON logging,

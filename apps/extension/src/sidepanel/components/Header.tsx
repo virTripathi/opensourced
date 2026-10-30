@@ -22,6 +22,7 @@ interface HeaderProps {
   setThemeMode: (mode: ThemeMode) => void;
   toggleTheme: () => void;
   activeAction: string | null;
+  isBackendOffline?: boolean;
   userProfile?: UserProfile | null;
   onGitHubLogin?: () => void;
   onGoogleLogin?: () => void;
@@ -40,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   setThemeMode,
   toggleTheme,
   activeAction,
+  isBackendOffline = false,
   userProfile,
   onGoogleLogin,
   onLogout,
@@ -94,16 +96,20 @@ export const Header: React.FC<HeaderProps> = ({
                 </>
               )}
             </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  activeAction ? 'bg-emerald-500 animate-ping' : 'bg-emerald-600'
-                }`}
-              />
-              <span className="text-[10px] text-[#787774] dark:text-[#9b9a97]">
-                {activeAction ? `Running ${activeAction}...` : 'Ready'}
-              </span>
-            </div>
+            {(activeAction || isBackendOffline) && (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    activeAction
+                      ? 'bg-emerald-500 animate-ping'
+                      : 'bg-rose-500'
+                  }`}
+                />
+                <span className={`text-[10px] ${isBackendOffline && !activeAction ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-[#787774] dark:text-[#9b9a97]'}`}>
+                  {activeAction ? `Running ${activeAction}...` : 'Server offline'}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
