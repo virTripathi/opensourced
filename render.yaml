@@ -1,21 +1,17 @@
 # ==============================================================================
 # OpenSourced Orchestrator — Render Blueprint (render.yaml)
-# Automated deployment configuration for Render Web Service + Persistent SQLite Disk
+# Automated deployment configuration for Render Free Web Service (Ephemeral SQLite)
 # ==============================================================================
 
 services:
   - type: web
     name: opensourced-backend
     runtime: node
-    plan: starter # Required for persistent disk attachment
+    plan: free
     region: oregon
     healthCheckPath: /api/auth/providers
-    buildCommand: npm ci && npx prisma generate --schema=./apps/backend/prisma/schema.prisma && npm run build
-    startCommand: npx prisma migrate deploy --schema=./apps/backend/prisma/schema.prisma && node apps/backend/dist/main.js
-    disk:
-      name: opensourced-sqlite-data
-      mountPath: /var/data
-      sizeGB: 1
+    buildCommand: npm ci && npm --workspace=@opensourced/backend run prisma:generate && npm run build
+    startCommand: npm --workspace=@opensourced/backend run prisma:deploy && node apps/backend/dist/main.js
     envVars:
       - key: NODE_VERSION
         value: 24
@@ -24,7 +20,7 @@ services:
       - key: DATABASE_TYPE
         value: sqlite
       - key: DATABASE_URL
-        value: file:/var/data/opensourced.db
+        value: file:/tmp/opensourced.db
       - key: APP_URL
         sync: false # Set to your https://<service-name>.onrender.com URL
       - key: ENCRYPTION_KEY
