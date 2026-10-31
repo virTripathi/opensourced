@@ -9,7 +9,7 @@
 [![GitHub Integration](https://img.shields.io/badge/GitHub-App%20Integration-181717?logo=github&logoColor=white)](#permissions--security-transparency)
 [![AI Engine](https://img.shields.io/badge/AI%20Engine-Google%20Gemini%202.5%20Flash-4285F4?logo=google&logoColor=white)](#how-it-works)
 [![Voice Integration](https://img.shields.io/badge/Voice-Wispr%20Flow-FF6B6B)](#built-with-wispr-flow)
-[![License](https://img.shields.io/badge/License-Apache%202.0%20%2F%20MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -219,4 +219,4 @@ Throughout development, **Wispr Flow** was used hands-free to dictate architectu
 
 ## License
 
-Distributed under the Apache 2.0 and MIT Licenses. See [`LICENSE`](LICENSE) for details.
+Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
