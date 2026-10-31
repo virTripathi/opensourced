@@ -10,7 +10,7 @@ services:
     plan: free
     region: oregon
     healthCheckPath: /api/auth/providers
-    buildCommand: npm ci && npm --workspace=@opensourced/backend run prisma:generate && npm run build
+    buildCommand: npm ci --include=dev && npm --workspace=@opensourced/backend run prisma:generate && npx turbo run build
     startCommand: npm --workspace=@opensourced/backend run prisma:deploy && node apps/backend/dist/main.js
     envVars:
       - key: NODE_VERSION
