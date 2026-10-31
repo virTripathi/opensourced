@@ -2,7 +2,7 @@
   "name": "opensourced",
   "private": true,
   "version": "0.1.0",
-  "description": "OpenSourced - Open-Source Onboarding Assistant (Chrome Side Panel + NestJS Orchestrator)",
+  "description": "OpenSourced - Split-Pane Repository & Feature Explorer for GitHub (Chrome Side Panel + NestJS)",
   "packageManager": "npm@11.19.1",
   "workspaces": [
     "apps/*",
@@ -14,7 +14,10 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "start": "node apps/backend/dist/main.js",
+    "start:prod": "node apps/backend/dist/main.js",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "package:extension": "turbo run build --filter=@opensourced/extension... && node scripts/package-extension.js"
   },
   "devDependencies": {
     "turbo": "^2.1.3",

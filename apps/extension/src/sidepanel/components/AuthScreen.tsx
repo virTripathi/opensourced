@@ -76,7 +76,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             Welcome to OpenSourced
           </h1>
           <p className="text-xs text-[#787774] dark:text-[#9b9a97] leading-relaxed">
-            Your companion for navigating repositories, diagnosing issues, running security audits, and cloning code locally.
+            Your split-pane companion for exploring repositories, tracing features, and inspecting code without leaving GitHub.
           </p>
         </div>
 

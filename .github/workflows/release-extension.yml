@@ -1,0 +1,60 @@
+name: Release Chrome Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    name: Build & Release Extension ZIP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Monorepo (Common & Extension)
+        run: npm run build
+
+      - name: Package Extension ZIP
+        run: node scripts/package-extension.js
+
+      - name: Upload Extension to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: OpenSourced Chrome Extension ${{ github.event.inputs.release_tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          files: opensourced-extension.zip
+          body: |
+            ### 🚀 OpenSourced Chrome Extension Release
+
+            #### Sideload Instructions (Developer Mode):
+            1. Download `opensourced-extension.zip` below and unzip it to a local folder.
+            2. Open Google Chrome and navigate to `chrome://extensions/`.
+            3. Enable **Developer mode** in the top right toggle.
+            4. Click **Load unpacked** and select the unzipped directory.
+            5. Navigate to any GitHub repository or issue, click the OpenSourced extension icon to open the Side Panel!
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

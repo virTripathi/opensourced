@@ -10,13 +10,135 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  Volume2,
+  Pause,
+  Play,
+  Square,
 } from 'lucide-react';
+import { useDiagramNarrator } from '../../hooks/useDiagramNarrator';
 
 interface MermaidViewerProps {
   chart: string;
   isDark?: boolean;
   className?: string;
   title?: string;
+  explanation?: string;
+}
+
+/**
+ * Synthesizes a natural, spoken audio walkthrough from raw Mermaid syntax
+ * when no explicit explanation metadata is attached to the diagram.
+ */
+export function generateFallbackDiagramWalkthrough(chartText: string): string {
+  if (!chartText || !chartText.trim()) return '';
+
+  const clean = chartText
+    .replace(/^```mermaid\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  // 1. Flowchart / Graph (e.g. graph TD, flowchart LR)
+  if (/^(graph|flowchart)\s+/i.test(clean)) {
+    const nodeLabels = new Map<string, string>();
+    const lines = clean.split('\n');
+    const transitions: Array<{ from: string; label?: string; to: string }> = [];
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('%%') || /^(graph|flowchart|subgraph|end|style|classDef|class|click)/i.test(line)) {
+        continue;
+      }
+
+      // First extract any node labels defined on this line
+      const localNodeRegex = /([A-Za-z0-9_-]+)\s*(?:\[|\(\[|\(\(|\{\{|\()([^[\](){}]+)(?:\]|\)\)|\}\}|\))/g;
+      let m: RegExpExecArray | null;
+      while ((m = localNodeRegex.exec(line)) !== null) {
+        const id = m[1];
+        const text = m[2].replace(/["']/g, '').trim();
+        if (text && !nodeLabels.has(id)) {
+          nodeLabels.set(id, text);
+        }
+      }
+
+      // Match edge transitions: FromId -->|Label| ToId or FromId --> ToId
+      const edgeMatch = line.match(
+        /([A-Za-z0-9_-]+)(?:\[.*?\]|\(.*?\))?\s*(?:-->|==>|-\.->)\s*(?:\|([^|]+)\|)?\s*([A-Za-z0-9_-]+)(?:\[.*?\]|\(.*?\))?/
+      );
+      if (edgeMatch) {
+        const fromId = edgeMatch[1];
+        const edgeLabel = edgeMatch[2]?.trim();
+        const toId = edgeMatch[3];
+        transitions.push({ from: fromId, label: edgeLabel, to: toId });
+      }
+    }
+
+    if (transitions.length > 0) {
+      const steps: string[] = [];
+      transitions.forEach((t, idx) => {
+        const fromName = nodeLabels.get(t.from) || t.from;
+        const toName = nodeLabels.get(t.to) || t.to;
+        const prefix = idx === 0 ? 'First, ' : idx === transitions.length - 1 ? 'Finally, ' : 'Next, ';
+
+        if (t.label) {
+          steps.push(`${prefix}${fromName} transitions via ${t.label} to ${toName}.`);
+        } else {
+          steps.push(`${prefix}${fromName} connects directly to ${toName}.`);
+        }
+      });
+
+      return `This diagram illustrates the architectural execution flow. ${steps.join(' ')}`;
+    }
+  }
+
+  // 2. Sequence Diagram (sequenceDiagram)
+  if (/^sequenceDiagram/i.test(clean)) {
+    const lines = clean.split('\n');
+    const steps: string[] = [];
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('%%') || /^(sequenceDiagram|autonumber|participant|actor|box|end|note)/i.test(line)) {
+        continue;
+      }
+
+      const seqMatch = line.match(/([A-Za-z0-9_-]+)\s*(?:->>|-->>|->|-->)\s*([A-Za-z0-9_-]+)\s*:\s*(.+)/);
+      if (seqMatch) {
+        const from = seqMatch[1];
+        const to = seqMatch[2];
+        const msg = seqMatch[3].trim();
+        const prefix = steps.length === 0 ? 'First, ' : 'Next, ';
+
+        if (from === to) {
+          steps.push(`${prefix}${from} internally processes ${msg}.`);
+        } else {
+          steps.push(`${prefix}${from} sends ${msg} to ${to}.`);
+        }
+      }
+    }
+
+    if (steps.length > 0) {
+      return `This sequence diagram outlines the interaction flow. ${steps.join(' ')}`;
+    }
+  }
+
+  // 3. Fallback for any diagram: extract readable bracketed labels
+  const extractedLabels: string[] = [];
+  const genericMatch = clean.match(/\[([^[\]]+)\]/g);
+  if (genericMatch) {
+    for (const raw of genericMatch) {
+      const text = raw.replace(/^\[|\]$/g, '').replace(/["']/g, '').trim();
+      if (text && !extractedLabels.includes(text)) {
+        extractedLabels.push(text);
+      }
+    }
+  }
+
+  if (extractedLabels.length > 0) {
+    return `This architecture diagram illustrates the flow across components: ${extractedLabels.join(', ')}.`;
+  }
+
+  return 'Architectural component and data flow diagram.';
 }
 
 export const MermaidViewer: React.FC<MermaidViewerProps> = ({
@@ -24,6 +146,7 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({
   isDark = false,
   className = '',
   title,
+  explanation: propExplanation,
 }) => {
   const [svgContent, setSvgContent] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -36,15 +159,31 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({
   const uniqueId = useId().replace(/:/g, '_');
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Clean raw chart code (remove markdown fences if present)
-  const cleanChart = React.useMemo(() => {
-    if (!chart) return '';
-    return chart
+  // Clean raw chart code and extract hidden explanation comment if present
+  const { cleanChart, extractedExplanation } = React.useMemo(() => {
+    if (!chart) return { cleanChart: '', extractedExplanation: '' };
+    let raw = chart
       .replace(/^```mermaid\s*/i, '')
       .replace(/^```\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
+
+    let extracted = '';
+    const match = raw.match(/%%\s*diagram-explanation:\s*([^\r\n]+)/i);
+    if (match) {
+      extracted = match[1].trim();
+      raw = raw.replace(/%%\s*diagram-explanation:\s*[^\r\n]+(\r?\n)?/i, '').trim();
+    }
+
+    return { cleanChart: raw, extractedExplanation: extracted };
   }, [chart]);
+
+  const fallbackExplanation = React.useMemo(() => {
+    return generateFallbackDiagramWalkthrough(cleanChart);
+  }, [cleanChart]);
+
+  const activeExplanation = (propExplanation || extractedExplanation || fallbackExplanation || '').trim();
+  const narrator = useDiagramNarrator(activeExplanation);
 
   useEffect(() => {
     let isMounted = true;
@@ -156,6 +295,58 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Voice Walkthrough Dictation Button */}
+          {activeExplanation && narrator.isSupported && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={narrator.toggle}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors shadow-2xs ${
+                  narrator.state === 'playing'
+                    ? 'bg-emerald-600 text-white animate-pulse'
+                    : narrator.state === 'paused'
+                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                }`}
+                title={
+                  narrator.state === 'playing'
+                    ? 'Pause diagram narration'
+                    : narrator.state === 'paused'
+                    ? 'Resume diagram narration'
+                    : 'Listen to spoken architecture walkthrough'
+                }
+              >
+                {narrator.state === 'playing' ? (
+                  <>
+                    <Pause className="w-3 h-3" />
+                    <span>Pause</span>
+                  </>
+                ) : narrator.state === 'paused' ? (
+                  <>
+                    <Play className="w-3 h-3" />
+                    <span>Resume</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3 h-3" />
+                    <span>Walkthrough</span>
+                  </>
+                )}
+              </button>
+
+              {narrator.state !== 'idle' && (
+                <button
+                  onClick={narrator.stop}
+                  className="p-1 rounded text-[#787774] dark:text-[#9b9a97] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-[#e9e9e7] dark:hover:bg-[#2e2e2e] transition-colors"
+                  title="Stop narration"
+                >
+                  <Square className="w-2.5 h-2.5 fill-current" />
+                </button>
+              )}
+
+              <div className="w-[1px] h-3 bg-[#e9e9e7] dark:bg-[#2e2e2e] mx-0.5" />
+            </div>
+          )}
+
           {/* Zoom controls (visible in normal or fullscreen) */}
           <button
             onClick={handleZoomIn}

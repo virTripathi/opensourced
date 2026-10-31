@@ -154,6 +154,13 @@ export class ArchitectureDto {
   })
   mermaidDiagram!: string;
 
+  @ApiProperty({
+    example: 'First, client components trigger reconciliation actions that pass through the reconciler before compiling into optimized render instructions.',
+    description: 'Conversational audio walkthrough of the architecture diagram for voice dictation',
+    required: false,
+  })
+  diagramExplanation?: string;
+
   @ApiProperty({ type: [CoreComponentDto], description: 'Key components and modules comprising the system' })
   coreComponents!: CoreComponentDto[];
 }
@@ -354,6 +361,13 @@ export class FeatureSummaryResponseDto {
     description: 'Valid Mermaid sequence or data flow diagram illustrating feature execution',
   })
   mermaidDiagram!: string;
+
+  @ApiProperty({
+    example: 'When Stripe triggers a webhook event, the HTTP handler verifies the cryptographic signature before asynchronously writing the subscription status into PostgreSQL.',
+    description: 'Conversational audio walkthrough of the feature execution flow for voice dictation',
+    required: false,
+  })
+  diagramExplanation?: string;
 
   @ApiProperty({ type: FeatureDependenciesDto })
   dependencies!: FeatureDependenciesDto;

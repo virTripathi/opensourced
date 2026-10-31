@@ -317,6 +317,7 @@ export const RepoSummaryOutputSchema = z.object({
   architecture: z.object({
     overview: z.string(),
     mermaidDiagram: z.string().describe('Valid Mermaid component or architecture diagram'),
+    diagramExplanation: z.string().optional().describe('Spoken conversational walkthrough of the architecture diagram explaining components, data flow, and user journey for voice dictation'),
     coreComponents: z.array(
       z.object({
         name: z.string(),
@@ -351,6 +352,7 @@ export const FeatureSummaryOutputSchema = z.object({
   summary: z.string(),
   entrypoints: z.array(FeatureEntrypointSchema),
   mermaidDiagram: z.string().describe('Valid Mermaid sequence or data flow diagram illustrating feature execution'),
+  diagramExplanation: z.string().optional().describe('Spoken conversational walkthrough of the feature execution and data flow diagram explaining component interactions and user journey for voice dictation'),
   dependencies: z.object({
     internalModules: z.array(z.string()),
     externalPackages: z.array(z.string()),

@@ -67,6 +67,7 @@ export function normalizeFeatureSummary(raw: any, queryFallback?: string): Featu
   }));
 
   const mermaidDiagram = raw?.mermaidDiagram || raw?.mermaid_diagram || raw?.diagram || raw?.architectureDiagram || '';
+  const diagramExplanation = raw?.diagramExplanation || raw?.diagram_explanation || raw?.figureExplanation || raw?.figure_explanation || raw?.narration || '';
 
   const rawDeps = raw?.dependencies || {};
   const dependencies = {
@@ -121,6 +122,7 @@ export function normalizeFeatureSummary(raw: any, queryFallback?: string): Featu
     summary,
     entrypoints,
     mermaidDiagram,
+    diagramExplanation,
     dependencies,
     securityAssessment: { findings },
     localVerification,
@@ -172,6 +174,7 @@ export function normalizeRepoSummary(
   const architecture = {
     overview: rawArch.overview || `${eco.displayName} architectural structure.`,
     mermaidDiagram: rawArch.mermaidDiagram || rawArch.mermaid_diagram || rawArch.diagram || 'graph TB\n  App["Application Core"]',
+    diagramExplanation: rawArch.diagramExplanation || rawArch.diagram_explanation || rawArch.figureExplanation || rawArch.figure_explanation || raw?.diagramExplanation || raw?.diagram_explanation || '',
     coreComponents: Array.isArray(rawArch.coreComponents)
       ? rawArch.coreComponents
       : Array.isArray(rawArch.core_components)
@@ -463,10 +466,11 @@ Your task is to analyze repository ${owner}/${repo} and output ONLY a valid JSON
 Requirements:
 1. Explain what purpose it serves and whom it caters (target audience).
 2. Produce a valid Mermaid diagram (graph TB) illustrating high-level architectural components.
-3. List the primary entry files and why they matter.
-4. Verify Authenticity & Purpose: Compare the README claims against real codebase facts (manifest, tests, entrypoints, codebase).
-5. Provide a pragmatic Developer Safety Assessment (committed secrets, dangerous install hooks, overall rating).
-6. Provide step-by-step local setup instructions.
+3. In "architecture.diagramExplanation", provide a natural, conversational spoken walkthrough (approx 45-75 seconds when dictated aloud) of the architecture diagram explaining the high-level system components, user journey, and data flow. Suitable for voice dictation.
+4. List the primary entry files and why they matter.
+5. Verify Authenticity & Purpose: Compare the README claims against real codebase facts (manifest, tests, entrypoints, codebase).
+6. Provide a pragmatic Developer Safety Assessment (committed secrets, dangerous install hooks, overall rating).
+7. Provide step-by-step local setup instructions.
 
 Format your entire response as a pure JSON object without markdown fences.`;
 
@@ -681,10 +685,11 @@ CRITICAL REPORTING STANDARDS:
    - High-Level Architecture & Rationale: Explain the system components, data lifecycle, and why specific data stores or pipelines are used (e.g. why PostgreSQL is used for durable persistence before indexing into OpenSearch).
    - Step-by-Step Execution Lifecycle: Walk through each concrete stage of execution (e.g. Stage 1: Setup & Healthcheck, Stage 2: Fetch & Parsing, Stage 3: Chunking & Embedding, Stage 4: Indexing & Reporting).
    - Concrete Code Citations: Quote key code snippets directly from the inspected files with their exact paths and function/class signatures (e.g. \`dag = DAG(...)\`, \`def setup_environment():\`, \`index_papers\`).
-3. MERMAID DIAGRAM:
+3. MERMAID DIAGRAM & AUDIO NARRATION:
    - For ANY multi-step pipeline, workflow, ETL DAG, search router, or multi-service interaction, YOU MUST PROVIDE A HIGH-LEVEL MERMAID DIAGRAM (e.g. \`graph LR\` or \`graph TD\` or \`sequenceDiagram\`).
    - Ground the diagram in the actual components, services, and storage engines inspected (e.g. \`arXiv API --> Fetch[fetch_daily_papers] --> Postgres[(PostgreSQL)] --> Index[index_papers] --> OpenSearch[(OpenSearch)]\`).
-   - If the feature is strictly a single isolated function without multi-component flow, set "mermaidDiagram" to "". NEVER output generic placeholders like "User -> System -> User".
+   - In "diagramExplanation", provide a natural, conversational spoken walkthrough (approx 45-75 seconds when dictated aloud) of the diagram explaining the request lifecycle, component interactions, and the end-to-end user journey. Suitable for voice dictation.
+   - If the feature is strictly a single isolated function without multi-component flow, set "mermaidDiagram" to "" and "diagramExplanation" to "". NEVER output generic placeholders like "User -> System -> User".
 4. ENTRYPOINTS:
    - Identify the primary entrypoint files that orchestrate or define this feature (e.g. DAG definitions, API routes/endpoints, CLI commands, primary worker handlers).
    - For each entrypoint, specify: "filePath", "lineRange" (e.g. "15-60"), "symbolName" (e.g. "dag", "search_hybrid", "IngestionWorker"), "symbolType" ("function" | "class" | "route_handler" | "component" | "middleware"), and "roleInFeature".
@@ -708,6 +713,7 @@ You MUST output a single valid JSON object strictly matching this schema structu
     }
   ],
   "mermaidDiagram": "graph LR\\n  A[Step 1] --> B[(Store)]\\n  B --> C[Step 2]",
+  "diagramExplanation": "Execution begins when a request enters Step 1, which processes the payload and writes state into the store before Step 2 completes the cycle.",
   "dependencies": {
     "internalModules": ["path/to/internal/module.py"],
     "externalPackages": ["package-name"]

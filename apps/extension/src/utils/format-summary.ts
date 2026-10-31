@@ -55,8 +55,23 @@ export function formatFeatureSummaryToMarkdown(
     rawDiagram.includes('Trigger Feature Flow') ||
     rawDiagram.includes('Core System') ||
     rawDiagram.includes('A[App] --> B[Core]');
+
+  const rawExplanation = (
+    feature.diagramExplanation ||
+    feature.diagram_explanation ||
+    feature.figureExplanation ||
+    feature.figure_explanation ||
+    feature.narration ||
+    ''
+  ).trim();
+
+  const explanationComment =
+    rawExplanation && !rawDiagram.includes('%% diagram-explanation:')
+      ? `%% diagram-explanation: ${rawExplanation.replace(/[\r\n]+/g, ' ')}\n`
+      : '';
+
   const diagramSection = !isFakeDiagram
-    ? `\n\n## Execution & Data Flow\n\`\`\`mermaid\n${rawDiagram}\n\`\`\``
+    ? `\n\n## Execution & Data Flow\n\`\`\`mermaid\n${explanationComment}${rawDiagram}\n\`\`\``
     : '';
 
   // Entrypoints table: omit entirely if no entrypoints discovered
@@ -76,12 +91,22 @@ export function formatFeatureSummaryToMarkdown(
           lineStr = ep.lineRange;
         } else if (typeof ep.lineRange === 'number') {
           lineStr = String(ep.lineRange);
+        } else if (ep.startLine) {
+          lineStr = ep.endLine && ep.endLine !== ep.startLine ? `${ep.startLine}-${ep.endLine}` : String(ep.startLine);
         }
 
-        const firstLine = lineStr ? lineStr.split('-')[0].replace(/[^0-9]/g, '') : '';
-        const lineHash = firstLine ? `#L${firstLine}` : '';
+        let lineHash = '';
+        if (lineStr) {
+          const parts = lineStr.split('-').map((p: string) => p.replace(/[^0-9]/g, '')).filter(Boolean);
+          if (parts.length >= 2) {
+            lineHash = `#L${parts[0]}-L${parts[1]}`;
+          } else if (parts.length === 1) {
+            lineHash = `#L${parts[0]}`;
+          }
+        }
+
         const cleanPath = (ep.filePath || ep.path || '').replace(/^\/+/, '');
-        const link = repoBaseUrl && cleanPath ? `${repoBaseUrl}/${cleanPath}${lineHash}` : cleanPath;
+        const link = repoBaseUrl && cleanPath ? `${repoBaseUrl}/${cleanPath}${lineHash}` : cleanPath ? `${cleanPath}${lineHash}` : '';
         const label = lineStr ? `${cleanPath}:${lineStr}` : cleanPath;
         const symName = ep.symbolName || ep.name || 'default';
         const symType = ep.symbolType || ep.type || 'module';
@@ -101,7 +126,12 @@ export function formatFeatureSummaryToMarkdown(
   if (internalList.length > 0 || externalList.length > 0) {
     depsSection = `\n\n## Architecture & Dependencies`;
     if (internalList.length > 0) {
-      depsSection += `\n### Internal Modules\n` + internalList.map((m: string) => `- \`${m}\``).join('\n');
+      depsSection += `\n### Internal Modules\n` + internalList.map((m: string) => {
+        const cleanM = m.replace(/^\/+/, '');
+        const isPath = cleanM.includes('/') || /\.[a-z0-9]+$/i.test(cleanM);
+        const link = repoBaseUrl && isPath ? `${repoBaseUrl}/${cleanM}` : cleanM;
+        return isPath ? `- [\`${cleanM}\`](${link})` : `- \`${cleanM}\``;
+      }).join('\n');
     }
     if (externalList.length > 0) {
       depsSection += `\n### External Packages\n` + externalList.map((p: string) => `- \`${p}\``).join('\n');
@@ -113,8 +143,12 @@ export function formatFeatureSummaryToMarkdown(
   if (Array.isArray(feature.securityAssessment?.findings) && feature.securityAssessment.findings.length > 0) {
     securityFindings = feature.securityAssessment.findings
       .map(
-        (f: any) =>
-          `- **[${f.severity || 'INFO'}] ${f.risk || f.category || 'Security consideration'}** in \`${f.file || f.fileOrLocation || 'codebase'}\`\n  - *Fix:* ${f.suggestedFix || f.remediation || 'Follow secure coding practices.'}`
+        (f: any) => {
+          const cleanFile = (f.file || f.fileOrLocation || '').replace(/^\/+/, '');
+          const fileLink = repoBaseUrl && cleanFile && cleanFile !== 'codebase' ? `${repoBaseUrl}/${cleanFile}` : cleanFile;
+          const fileDisplay = cleanFile && cleanFile !== 'codebase' ? `[\`${cleanFile}\`](${fileLink})` : `\`${cleanFile || 'codebase'}\``;
+          return `- **[${f.severity || 'INFO'}] ${f.risk || f.category || 'Security consideration'}** in ${fileDisplay}\n  - *Fix:* ${f.suggestedFix || f.remediation || 'Follow secure coding practices.'}`;
+        }
       )
       .join('\n');
   } else if (Array.isArray(feature.securityVulnerabilities) && feature.securityVulnerabilities.length > 0) {
@@ -157,7 +191,11 @@ export function formatFeatureSummaryToMarkdown(
       verificationSection += `\n**Triggering locally:** ${howToTrigger}\n`;
     }
     if (existingTestsList.length > 0) {
-      verificationSection += `\n### Test Files\n` + existingTestsList.map((t: string) => `- \`${t}\``).join('\n') + '\n';
+      verificationSection += `\n### Test Files\n` + existingTestsList.map((t: string) => {
+        const cleanTest = t.replace(/^\/+/, '');
+        const testLink = repoBaseUrl ? `${repoBaseUrl}/${cleanTest}` : cleanTest;
+        return `- [\`${cleanTest}\`](${testLink})`;
+      }).join('\n') + '\n';
     }
     if (testCommandsList.length > 0) {
       verificationSection += `\n### Test Commands\n\`\`\`bash\n${testCommandsList.join('\n')}\n\`\`\`\n`;
@@ -201,7 +239,12 @@ export function formatRepoSummaryToMarkdown(
 
   const components = Array.isArray(repoSum.architecture?.coreComponents) && repoSum.architecture.coreComponents.length > 0
     ? repoSum.architecture.coreComponents
-        .map((c: any) => `- **${c.name}** (\`${c.path}\`): ${c.role || ''}`)
+        .map((c: any) => {
+          const cleanPath = (c.path || '').replace(/^\/+/, '');
+          const link = repoBaseUrl && cleanPath ? `${repoBaseUrl}/${cleanPath}` : cleanPath;
+          const pathDisplay = cleanPath ? ` ([\`${cleanPath}\`](${link}))` : '';
+          return `- **${c.name}**${pathDisplay}: ${c.role || ''}`;
+        })
         .join('\n')
     : '';
 
@@ -214,13 +257,33 @@ export function formatRepoSummaryToMarkdown(
     rawDiagram.includes('A[App] --> B[Core]') ||
     rawDiagram.includes('Trigger Feature Flow');
 
+  const rawRepoExplanation = (
+    repoSum.architecture?.diagramExplanation ||
+    repoSum.architecture?.diagram_explanation ||
+    repoSum.architecture?.figureExplanation ||
+    repoSum.architecture?.figure_explanation ||
+    repoSum.diagramExplanation ||
+    repoSum.diagram_explanation ||
+    ''
+  ).trim();
+
+  const repoExplanationComment =
+    rawRepoExplanation && !rawDiagram.includes('%% diagram-explanation:')
+      ? `%% diagram-explanation: ${rawRepoExplanation.replace(/[\r\n]+/g, ' ')}\n`
+      : '';
+
   const diagramBlock = !isFakeRepoDiagram
-    ? `\n\`\`\`mermaid\n${rawDiagram}\n\`\`\`\n`
+    ? `\n\`\`\`mermaid\n${repoExplanationComment}${rawDiagram}\n\`\`\`\n`
     : '';
 
   const findings = Array.isArray(repoSum.securityAssessment?.findings) && repoSum.securityAssessment.findings.length > 0
     ? repoSum.securityAssessment.findings
-        .map((f: any) => `- **[${f.severity || 'INFO'}] ${f.category || 'Finding'}** (\`${f.fileOrLocation || 'tree'}\`): ${f.description || ''}\n  - *Remediation:* ${f.remediation || 'Inspect code'}`)
+        .map((f: any) => {
+          const cleanLoc = (f.fileOrLocation || '').replace(/^\/+/, '');
+          const link = repoBaseUrl && cleanLoc && cleanLoc !== 'tree' ? `${repoBaseUrl}/${cleanLoc}` : cleanLoc;
+          const locDisplay = cleanLoc && cleanLoc !== 'tree' ? `[\`${cleanLoc}\`](${link})` : `\`${cleanLoc || 'tree'}\``;
+          return `- **[${f.severity || 'INFO'}] ${f.category || 'Finding'}** (${locDisplay}): ${f.description || ''}\n  - *Remediation:* ${f.remediation || 'Inspect code'}`;
+        })
         .join('\n')
     : '- 🛡️ Verified clean: No credential leaks or suspicious install hooks detected.';
 

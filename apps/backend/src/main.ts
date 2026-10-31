@@ -5,6 +5,7 @@ import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
 import cookieParser from 'cookie-parser';
+import * as express from 'express';
 import { ConfigService } from '@nestjs/config';
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -32,14 +33,16 @@ async function bootstrap() {
   // Parse HTTP-only cookies for session authentication
   app.use(cookieParser());
 
-  // Enable CORS for Chrome Extension origin and local frontend
+  // Enable CORS for Chrome Extension origin, Render, Vercel, and local frontend
   app.enableCors({
     origin: (origin, callback) => {
       if (
         !origin ||
         origin.startsWith('chrome-extension://') ||
         origin.includes('localhost') ||
-        origin.includes('127.0.0.1')
+        origin.includes('127.0.0.1') ||
+        origin.includes('onrender.com') ||
+        origin.includes('vercel.app')
       ) {
         callback(null, true);
       } else {
@@ -114,6 +117,147 @@ async function bootstrap() {
   } catch (err: any) {
     console.warn(`Could not write openapi-spec.json to disk: ${err.message}`);
   }
+
+  // ============================================================================
+  // Static Landing Page & Web App Serving & 404 Auto-Redirect
+  // ============================================================================
+  const candidateLandingFiles = [
+    path.resolve(process.cwd(), 'index.html'),
+    path.resolve(process.cwd(), '../../index.html'),
+    path.resolve(__dirname, '../../../index.html'),
+    path.resolve(__dirname, '../../index.html'),
+  ];
+  const landingFilePath = candidateLandingFiles.find((f) => fs.existsSync(f));
+
+  const candidateExtensionDirs = [
+    path.resolve(process.cwd(), 'apps/extension/dist'),
+    path.resolve(process.cwd(), '../extension/dist'),
+    path.resolve(__dirname, '../../../apps/extension/dist'),
+    path.resolve(__dirname, '../../extension/dist'),
+  ];
+  const extensionDir = candidateExtensionDirs.find((dir) => fs.existsSync(dir));
+
+  const server = app.getHttpAdapter().getInstance();
+
+  // 1. Dedicated 404 Route: displays notice and auto-redirects to home in 2 seconds
+  server.get('/404', (_req: express.Request, res: express.Response) => {
+    res.status(404).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>404 - Page Not Found | OpenSourced</title>
+  <meta http-equiv="refresh" content="2;url=/" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #fafaf9;
+      color: #37352f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e9e9e7;
+      border-radius: 12px;
+      padding: 36px 32px;
+      max-width: 440px;
+      text-align: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+    }
+    h1 { font-size: 20px; font-weight: 700; margin: 0 0 8px 0; color: #1c1917; }
+    p { font-size: 13px; color: #787774; line-height: 1.5; margin: 0 0 20px 0; }
+    .timer { font-weight: 700; color: #059669; }
+    .actions { display: flex; gap: 8px; justify-content: center; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #059669;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: #047857; }
+    .btn-secondary {
+      background: #f5f5f4;
+      color: #44403c;
+      border: 1px solid #e7e5e4;
+    }
+    .btn-secondary:hover { background: #e7e5e4; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Error 404</div>
+    <h1>Page Not Found</h1>
+    <p>The requested route does not exist. Redirecting to home in <span id="countdown" class="timer">2</span> seconds...</p>
+    <div class="actions">
+      <a href="/" class="btn">Return Home Now</a>
+      <a href="/api/docs" class="btn btn-secondary">Swagger Docs</a>
+    </div>
+  </div>
+  <script>
+    let count = 2;
+    const timerEl = document.getElementById('countdown');
+    const interval = setInterval(() => {
+      count--;
+      if (timerEl) timerEl.textContent = count;
+      if (count <= 0) {
+        clearInterval(interval);
+        window.location.href = '/';
+      }
+    }, 1000);
+  </script>
+</body>
+</html>`);
+  });
+
+  // 2. Root URL serves the OpenSourced Landing Page index.html
+  if (landingFilePath) {
+    server.get('/', (_req: express.Request, res: express.Response) => {
+      res.sendFile(landingFilePath);
+    });
+    server.get('/index.html', (_req: express.Request, res: express.Response) => {
+      res.sendFile(landingFilePath);
+    });
+  }
+
+  // 3. Serve Extension App at /extension (and its static assets)
+  if (extensionDir) {
+    app.use('/extension', express.static(extensionDir));
+    server.get('/extension', (_req: express.Request, res: express.Response) => {
+      res.sendFile(path.join(extensionDir, 'index.html'));
+    });
+  }
+
+  // 4. Any other non-API and non-extension path redirects to /404 (which redirects to / after 2s)
+  server.get('*', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/extension')) {
+      return next();
+    }
+    res.redirect('/404');
+  });
 
   await app.listen(port);
   console.log(`🚀 OpenSourced NestJS Backend running on http://localhost:${port}`);

@@ -11,6 +11,7 @@ import {
   LogIn,
   FileText,
   Layers,
+  FileCode2,
 } from 'lucide-react';
 import { GitHubContext, UserProfile } from '@opensourced/common/types';
 import { ThemeMode } from '../../hooks/useTheme';
@@ -113,8 +114,20 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right: User Menu, Model Badge & Theme Toggle */}
+        {/* Right: Swagger API, User Menu, Model Badge & Theme Toggle */}
         <div className="flex items-center space-x-1.5 flex-shrink-0">
+          {/* Swagger API Docs Link */}
+          <a
+            href="/api/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#f7f7f5] dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] text-[11px] font-medium text-[#787774] dark:text-[#9b9a97] hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-300 dark:hover:border-emerald-800 transition-colors shadow-2xs"
+            title="Open Interactive Swagger API Documentation (/api/docs)"
+          >
+            <FileCode2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Swagger API</span>
+          </a>
+
           {/* User Account Menu */}
           {isAuthenticated && userProfile ? (
             <div className="relative">

@@ -6,7 +6,7 @@ import { EcosystemDetectorService } from '../mcp/ecosystem-detector.service';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { GroundingValidatorService } from './grounding-validator.service';
 import { SummaryCacheService } from './summary-cache.service';
-import { AgentService } from './agent.service';
+import { AgentService, normalizeRepoSummary, normalizeFeatureSummary } from './agent.service';
 import { ConfigService } from '@nestjs/config';
 import { User } from '../auth/user.repository';
 import { ServerSentEvent } from '@opensourced/common';
@@ -502,6 +502,71 @@ async function runConcurrencyAndQuotaTests() {
     console.log(`        - Total Elapsed Time: ${durationMs}ms`);
 
     scheduler.reset();
+  });
+
+  // --------------------------------------------------------------------------
+  // Group 6: Diagram Walkthrough & Narration Schema Normalization
+  // --------------------------------------------------------------------------
+  console.log('\n--- Group 6: Diagram Narration & Explanation Normalization ---');
+
+  await test('normalizeRepoSummary extracts architecture.diagramExplanation from camelCase, snake_case, and figure_explanation', () => {
+    const eco = { displayName: 'TypeScript / Node.js', ecosystem: 'typescript' };
+
+    // Case 1: camelCase
+    const res1 = normalizeRepoSummary(
+      { architecture: { overview: 'Arch', mermaidDiagram: 'graph TB', diagramExplanation: 'Narration 1' } },
+      eco,
+      'test-owner',
+      'test-repo'
+    );
+    assert.strictEqual(res1.architecture.diagramExplanation, 'Narration 1');
+
+    // Case 2: snake_case
+    const res2 = normalizeRepoSummary(
+      { architecture: { overview: 'Arch', mermaid_diagram: 'graph TB', diagram_explanation: 'Narration 2' } },
+      eco,
+      'test-owner',
+      'test-repo'
+    );
+    assert.strictEqual(res2.architecture.diagramExplanation, 'Narration 2');
+
+    // Case 3: figure_explanation
+    const res3 = normalizeRepoSummary(
+      { architecture: { overview: 'Arch', diagram: 'graph TB', figure_explanation: 'Narration 3' } },
+      eco,
+      'test-owner',
+      'test-repo'
+    );
+    assert.strictEqual(res3.architecture.diagramExplanation, 'Narration 3');
+  });
+
+  await test('normalizeFeatureSummary extracts diagramExplanation from camelCase, snake_case, and figure_explanation', () => {
+    // Case 1: camelCase
+    const res1 = normalizeFeatureSummary({
+      featureName: 'Stripe Webhooks',
+      summary: 'Summary text',
+      mermaidDiagram: 'sequenceDiagram',
+      diagramExplanation: 'Feature narration 1',
+    });
+    assert.strictEqual(res1.diagramExplanation, 'Feature narration 1');
+
+    // Case 2: snake_case
+    const res2 = normalizeFeatureSummary({
+      feature_name: 'Stripe Webhooks',
+      summary: 'Summary text',
+      mermaid_diagram: 'sequenceDiagram',
+      diagram_explanation: 'Feature narration 2',
+    });
+    assert.strictEqual(res2.diagramExplanation, 'Feature narration 2');
+
+    // Case 3: figure_explanation
+    const res3 = normalizeFeatureSummary({
+      name: 'Stripe Webhooks',
+      summary: 'Summary text',
+      diagram: 'sequenceDiagram',
+      figure_explanation: 'Feature narration 3',
+    });
+    assert.strictEqual(res3.diagramExplanation, 'Feature narration 3');
   });
 
   // --------------------------------------------------------------------------

@@ -116,6 +116,19 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
     }
   }, [isLogsExpanded, activeReport?.streamLogs]);
 
+  // Memoize repository context for 1-click file navigation
+  const reportRepoContext = useMemo(() => {
+    const rawRepo = activeReport?.repo || currentRepo;
+    if (!rawRepo) return null;
+    const [owner, repo] = rawRepo.split('/');
+    if (!owner || !repo) return null;
+    return {
+      owner,
+      repo,
+      branch: activeReport?.branch || 'main',
+    };
+  }, [activeReport?.repo, activeReport?.branch, currentRepo]);
+
   // Extract headings from markdown for Table of Contents navigation pills
   const tableOfContents = useMemo(() => {
     if (!displayedContent) return [];
@@ -841,7 +854,11 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
         ref={contentContainerRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-3 selection:bg-emerald-600 selection:text-white"
       >
-        <MarkdownViewer content={displayedContent} isDark={isDark} />
+        <MarkdownViewer
+          content={displayedContent}
+          isDark={isDark}
+          repoContext={reportRepoContext}
+        />
       </main>
     </div>
   );

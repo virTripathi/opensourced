@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GitHubContext, ServerSentEvent } from '@opensourced/common/types';
 import { parseGitHubUrl } from '@opensourced/common';
-import { CheckCircle2, ArrowRight, X, Sparkles, AlertCircle } from 'lucide-react';
+import { CheckCircle2, ArrowRight, X, Sparkles, AlertCircle, FileCode2, ExternalLink } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useReportCache, StoredReport } from '../hooks/useReportCache';
@@ -13,6 +13,7 @@ import { ActionCards } from './components/ActionCards';
 import { ReportsScreen } from './components/ReportsScreen';
 import { formatFeatureSummaryToMarkdown, formatRepoSummaryToMarkdown } from '../utils/format-summary';
 import { EXTENSION_CONFIG } from '../config/constants';
+import { setActiveRepoContext } from '../utils/file-navigation';
 
 const API_BASE = EXTENSION_CONFIG.apiBase;
 
@@ -139,6 +140,13 @@ export default function App() {
       return () => chrome.runtime.onMessage.removeListener(listener);
     }
   }, []);
+
+  // Synchronize global repository context for 1-click file jumping across all screens
+  useEffect(() => {
+    setActiveRepoContext(
+      context ? { owner: context.owner, repo: context.repo, branch: context.branch } : null
+    );
+  }, [context]);
 
   // Context-derived repository reports and action state mapping
   const contextRepoFullName = useMemo(() => {
@@ -827,6 +835,36 @@ export default function App() {
           </span>
         </div>
       )}
+
+      {/* Developer & API Affordance (Swagger Interactive Documentation & Schema) */}
+      <footer className="pt-2 border-t border-[#e9e9e7] dark:border-[#2e2e2e] flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#787774] dark:text-[#9b9a97] mt-auto">
+        <div className="flex items-center gap-1.5 font-medium">
+          <FileCode2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          <span>API Documentation & Schema</span>
+        </div>
+        <div className="flex items-center gap-2 font-medium">
+          <a
+            href="/api/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+            title="Interactive Swagger UI Documentation (/api/docs)"
+          >
+            <span>Swagger UI</span>
+            <ExternalLink className="w-2.5 h-2.5" />
+          </a>
+          <span className="text-[#9b9a97]">|</span>
+          <a
+            href="/api/docs-json"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-[#37352f] dark:hover:text-[#ebebeb] hover:underline"
+            title="Exportable OpenAPI JSON Schema (/api/docs-json)"
+          >
+            OpenAPI Spec
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }

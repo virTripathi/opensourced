@@ -3,17 +3,20 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Check, ExternalLink, Terminal } from 'lucide-react';
 import { MermaidViewer } from './MermaidViewer';
+import { detectFileJumpTarget, jumpToGitHubFile, RepoContext } from '../../utils/file-navigation';
 
 interface MarkdownViewerProps {
   content: string;
   isDark?: boolean;
   className?: string;
+  repoContext?: RepoContext | null;
 }
 
 export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   content,
   isDark = false,
   className = '',
+  repoContext,
 }) => {
   const [copiedSnippetIndex, setCopiedSnippetIndex] = useState<number | null>(null);
 
@@ -26,20 +29,13 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href?: string) => {
     if (!href) return;
 
+    const fileTarget = detectFileJumpTarget(href, repoContext);
+    const targetUrl = fileTarget ? fileTarget.url : href;
+
     // Synchronized Split-Pane Navigation: Jump active GitHub tab directly
-    if (href.startsWith('https://github.com/') || href.startsWith('http://github.com/')) {
-      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
-        e.preventDefault();
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          const activeTab = tabs?.[0];
-          if (activeTab?.id) {
-            chrome.tabs.update(activeTab.id, { url: href });
-          } else {
-            window.open(href, '_blank');
-          }
-        });
-        return;
-      }
+    if (targetUrl.startsWith('https://github.com/') || targetUrl.startsWith('http://github.com/')) {
+      e.preventDefault();
+      jumpToGitHubFile(targetUrl);
     }
   };
 
@@ -66,8 +62,28 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
               );
             }
 
-            // 2. Inline Code badge
+            // 2. Inline Code badge (with 1-click jump for detected file paths)
             if (isInline) {
+              const textContent = String(children);
+              const fileTarget = detectFileJumpTarget(textContent, repoContext);
+
+              if (fileTarget && fileTarget.url) {
+                return (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      jumpToGitHubFile(fileTarget.url);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300/70 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 hover:text-emerald-900 dark:hover:text-emerald-200 transition-colors cursor-pointer group"
+                    title={`Jump to ${fileTarget.filePath} on GitHub`}
+                  >
+                    <span>{children}</span>
+                    <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                  </button>
+                );
+              }
+
               return (
                 <code
                   className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-[#f2f2f0] dark:bg-[#252525] text-emerald-800 dark:text-emerald-300 border border-[#e9e9e7]/60 dark:border-[#333333]"
@@ -159,18 +175,23 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
             </blockquote>
           ),
           a: ({ href, children }) => {
-            const isGitHubLink = href?.startsWith('https://github.com/') || href?.startsWith('http://github.com/');
+            const fileTarget = detectFileJumpTarget(href || '', repoContext);
+            const targetUrl = fileTarget ? fileTarget.url : href;
+            const isJumpable = Boolean(
+              fileTarget || (href && (href.startsWith('https://github.com/') || href.startsWith('http://github.com/')))
+            );
+
             return (
               <a
-                href={href}
+                href={targetUrl}
                 onClick={(e) => handleLinkClick(e, href)}
                 target="_blank"
                 rel="noreferrer"
                 className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium inline-flex items-center gap-0.5 cursor-pointer"
-                title={isGitHubLink ? 'Jump to file in left browser tab' : undefined}
+                title={isJumpable ? `Jump to ${fileTarget?.filePath || 'file'} on GitHub` : undefined}
               >
                 <span>{children}</span>
-                <ExternalLink className="w-2.5 h-2.5 inline opacity-70" />
+                <ExternalLink className="w-2.5 h-2.5 inline opacity-70 ml-0.5" />
               </a>
             );
           },

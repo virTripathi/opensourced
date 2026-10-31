@@ -1,74 +1,6 @@
 {
   "openapi": "3.0.0",
   "paths": {
-    "/api/git/picker": {
-      "post": {
-        "operationId": "GitController_openFolderPicker",
-        "summary": "Open Native OS Folder Picker",
-        "description": "Triggers a native desktop directory chooser dialog (osascript on macOS, zenity on Linux, powershell on Windows) for selecting a clone target path.",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OpenFolderPickerDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Selected directory path or cancellation flag"
-          }
-        },
-        "tags": [
-          "Local Git & Workspace Engine"
-        ]
-      }
-    },
-    "/api/git/clone": {
-      "post": {
-        "operationId": "GitController_cloneStream",
-        "summary": "Clone Repository Locally with Progress Stream",
-        "description": "Executes git clone into the selected local target directory and streams real-time stdout/stderr percentage events via Server-Sent Events.",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CloneRepositoryRequestDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Streaming git clone progress events"
-          }
-        },
-        "tags": [
-          "Local Git & Workspace Engine"
-        ]
-      }
-    },
-    "/api/git/cancel": {
-      "post": {
-        "operationId": "GitController_cancelClone",
-        "summary": "Stop Ongoing Git Clone and Clean Up Files",
-        "description": "Terminates active git clone child process and deletes any partially downloaded files from disk to prevent orphaned files.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Confirmation that clone was cancelled and files cleaned up"
-          }
-        },
-        "tags": [
-          "Local Git & Workspace Engine"
-        ]
-      }
-    },
     "/api/agent/stream": {
       "post": {
         "operationId": "AgentController_streamAction",
@@ -589,7 +521,7 @@
   },
   "info": {
     "title": "OpenSourced API - Open-Source Onboarding Assistant",
-    "description": "Complete OpenAPI specification for OpenSourced backend intelligence engine. Includes repository & feature summarisation, universal multi-language architecture analysis, credential leak guardrails, Git workspace bridging, and Google Drive artifact export. Import directly into Postman via http://localhost:8000/api/docs-json or using the exported openapi-spec.json.",
+    "description": "Complete OpenAPI specification for OpenSourced backend intelligence engine. Includes repository & feature summarisation, universal multi-language architecture analysis, credential leak guardrails, and Google Drive artifact export. Import directly into Postman via http://localhost:8000/api/docs-json or using the exported openapi-spec.json.",
     "version": "1.2.0",
     "contact": {}
   },
@@ -597,10 +529,6 @@
     {
       "name": "Repository & Feature Intelligence",
       "description": "High-velocity repository architecture summarisation, entrypoint discovery, and feature tracing"
-    },
-    {
-      "name": "Local Git & Workspace Engine",
-      "description": "Native desktop directory picker bridge and streaming git clone"
     },
     {
       "name": "Google Drive Export",
@@ -641,55 +569,6 @@
       }
     },
     "schemas": {
-      "OpenFolderPickerDto": {
-        "type": "object",
-        "properties": {
-          "repoName": {
-            "type": "string",
-            "description": "Repository name used to propose default destination directory",
-            "example": "react"
-          }
-        },
-        "required": [
-          "repoName"
-        ]
-      },
-      "CloneRepositoryRequestDto": {
-        "type": "object",
-        "properties": {
-          "repoUrl": {
-            "type": "string",
-            "description": "Canonical git clone URL",
-            "example": "https://github.com/facebook/react.git"
-          },
-          "owner": {
-            "type": "string",
-            "description": "Repository owner",
-            "example": "facebook"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository name",
-            "example": "react"
-          },
-          "destinationPath": {
-            "type": "string",
-            "description": "Target filesystem directory path chosen via native folder picker",
-            "example": "~/Projects/react"
-          },
-          "autoOpenVsCode": {
-            "type": "boolean",
-            "description": "Whether to open VS Code upon successful cloning",
-            "example": true,
-            "default": true
-          }
-        },
-        "required": [
-          "repoUrl",
-          "owner",
-          "repo"
-        ]
-      },
       "SummariseRepoDto": {
         "type": "object",
         "properties": {
@@ -869,6 +748,11 @@
             "type": "string",
             "example": "graph TB\n  Client[\"Client Tier (React DOM)\"] --> Reconciler[\"Fiber Reconciler\"]\n  Reconciler --> Compiler[\"React Compiler Engine\"]",
             "description": "Valid, sanitized Mermaid diagram code ready for rendering"
+          },
+          "diagramExplanation": {
+            "type": "string",
+            "example": "First, client components trigger reconciliation actions that pass through the reconciler before compiling into optimized render instructions.",
+            "description": "Conversational audio walkthrough of the architecture diagram for voice dictation"
           },
           "coreComponents": {
             "description": "Key components and modules comprising the system",
@@ -1400,6 +1284,11 @@
             "type": "string",
             "example": "sequenceDiagram\n  autonumber\n  actor Stripe\n  participant Webhook as /api/webhooks/stripe\n  participant DB as PostgreSQL\n  Stripe->>Webhook: POST invoice.payment_succeeded\n  Webhook->>Webhook: Verify Signature\n  Webhook->>DB: UPDATE Subscription SET status=\"active\"",
             "description": "Valid Mermaid sequence or data flow diagram illustrating feature execution"
+          },
+          "diagramExplanation": {
+            "type": "string",
+            "example": "When Stripe triggers a webhook event, the HTTP handler verifies the cryptographic signature before asynchronously writing the subscription status into PostgreSQL.",
+            "description": "Conversational audio walkthrough of the feature execution flow for voice dictation"
           },
           "dependencies": {
             "$ref": "#/components/schemas/FeatureDependenciesDto"

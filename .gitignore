@@ -21,6 +21,7 @@ out/
 .vite/
 *.crx
 *.pem
+*.zip
 
 # Environment Variables & Secrets
 .env

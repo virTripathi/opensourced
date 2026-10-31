@@ -1,0 +1,53 @@
+# ==============================================================================
+# OpenSourced Orchestrator — Render Blueprint (render.yaml)
+# Automated deployment configuration for Render Web Service + Persistent SQLite Disk
+# ==============================================================================
+
+services:
+  - type: web
+    name: opensourced-backend
+    runtime: node
+    plan: starter # Required for persistent disk attachment
+    region: oregon
+    healthCheckPath: /api/auth/providers
+    buildCommand: npm ci && npx prisma generate --schema=./apps/backend/prisma/schema.prisma && npm run build
+    startCommand: npx prisma migrate deploy --schema=./apps/backend/prisma/schema.prisma && node apps/backend/dist/main.js
+    disk:
+      name: opensourced-sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_TYPE
+        value: sqlite
+      - key: DATABASE_URL
+        value: file:/var/data/opensourced.db
+      - key: APP_URL
+        sync: false # Set to your https://<service-name>.onrender.com URL
+      - key: ENCRYPTION_KEY
+        generateValue: true # Render automatically generates a cryptographically secure key
+      - key: JWT_SECRET
+        generateValue: true # Render automatically generates a secure JWT signing secret
+      - key: GITHUB_APP_NAME
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CALLBACK_URL
+        sync: false # Set to https://<service-name>.onrender.com/api/auth/github/callback
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false # Set to https://<service-name>.onrender.com/api/auth/google/callback
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: RANKING_PROVIDER
+        value: gemini

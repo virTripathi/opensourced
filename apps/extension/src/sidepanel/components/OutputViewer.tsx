@@ -12,6 +12,7 @@ import {
   Bookmark,
 } from 'lucide-react';
 import { MarkdownViewer } from './MarkdownViewer';
+import { RepoContext } from '../../utils/file-navigation';
 
 interface OutputViewerProps {
   latestResult: string;
@@ -22,6 +23,7 @@ interface OutputViewerProps {
   onSaveReport?: () => void;
   isSaved?: boolean;
   isDark?: boolean;
+  repoContext?: RepoContext | null;
 }
 
 export const OutputViewer: React.FC<OutputViewerProps> = ({
@@ -33,6 +35,7 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
   onSaveReport,
   isSaved = false,
   isDark = false,
+  repoContext,
 }) => {
   const [activeTab, setActiveTab] = useState<'report' | 'logs'>('report');
   const [isCopied, setIsCopied] = useState(false);
@@ -318,7 +321,7 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
 
             {/* Formatted Content with GFM & Mermaid Diagram Rendering */}
             {latestResult ? (
-              <MarkdownViewer content={latestResult} isDark={isDark} />
+              <MarkdownViewer content={latestResult} isDark={isDark} repoContext={repoContext} />
             ) : (
               <div className="py-8 text-center text-[#787774] dark:text-[#9b9a97] space-y-2">
                 <div className="w-8 h-8 rounded-full bg-[#f7f7f5] dark:bg-[#282828] border border-[#e9e9e7] dark:border-[#333333] flex items-center justify-center mx-auto text-[#787774] dark:text-[#9b9a97]">

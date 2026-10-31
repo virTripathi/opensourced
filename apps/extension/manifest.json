@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "OpenSourced: Open-Source Onboarding Assistant",
+  "name": "OpenSourced: Split-Pane Repository Explorer",
   "version": "0.1.0",
-  "description": "Context-aware Chrome Side Panel copilot for open-source contributors browsing GitHub.",
+  "description": "Split-pane repository and feature explorer for GitHub with synchronized navigation.",
   "permissions": [
     "sidePanel",
     "tabs",
@@ -12,6 +12,8 @@
   ],
   "host_permissions": [
     "https://github.com/*",
+    "https://*.onrender.com/*",
+    "https://*.up.railway.app/*",
     "http://localhost:8000/*",
     "http://localhost:3001/*"
   ],
