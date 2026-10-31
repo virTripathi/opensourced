@@ -36,6 +36,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
       ip: req.ip || req.socket?.remoteAddress,
       userId,
       userAgent: req.get('user-agent'),
+      origin: req.get('origin') || req.get('referer') || undefined,
       body: req.body,
       query: req.query,
     });

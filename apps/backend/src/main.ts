@@ -128,6 +128,8 @@ async function bootstrap() {
     path.resolve(__dirname, '../../index.html'),
   ];
   const landingFilePath = candidateLandingFiles.find((f) => fs.existsSync(f));
+  const rootDir = landingFilePath ? path.dirname(landingFilePath) : process.cwd();
+  const publicDir = path.join(rootDir, 'public');
 
   const candidateExtensionDirs = [
     path.resolve(process.cwd(), 'apps/extension/dist'),
@@ -139,20 +141,27 @@ async function bootstrap() {
 
   const server = app.getHttpAdapter().getInstance();
 
+  // Serve static public assets (favicons, icons, manifest files)
+  if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+  }
+
   // 1. Dedicated 404 Route: displays notice and auto-redirects to home in 2 seconds
   server.get('/404', (_req: express.Request, res: express.Response) => {
     res.status(404).send(`<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>404 - Page Not Found | OpenSourced</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-dark-32.png" />
+  <link rel="shortcut icon" href="/favicon.ico" />
   <meta http-equiv="refresh" content="2;url=/" />
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #fafaf9;
-      color: #37352f;
+      background: #191919;
+      color: #ebebeb;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -160,13 +169,13 @@ async function bootstrap() {
       margin: 0;
     }
     .card {
-      background: #ffffff;
-      border: 1px solid #e9e9e7;
+      background: #202020;
+      border: 1px solid #2e2e2e;
       border-radius: 12px;
       padding: 36px 32px;
       max-width: 440px;
       text-align: center;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.35);
     }
     .badge {
       display: inline-block;
@@ -174,16 +183,16 @@ async function bootstrap() {
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      background: #fef2f2;
-      color: #dc2626;
-      border: 1px solid #fecaca;
+      background: rgba(220, 38, 38, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(220, 38, 38, 0.3);
       padding: 3px 8px;
       border-radius: 9999px;
       margin-bottom: 12px;
     }
-    h1 { font-size: 20px; font-weight: 700; margin: 0 0 8px 0; color: #1c1917; }
-    p { font-size: 13px; color: #787774; line-height: 1.5; margin: 0 0 20px 0; }
-    .timer { font-weight: 700; color: #059669; }
+    h1 { font-size: 20px; font-weight: 700; margin: 0 0 8px 0; color: #ebebeb; }
+    p { font-size: 13px; color: #9b9a97; line-height: 1.5; margin: 0 0 20px 0; }
+    .timer { font-weight: 700; color: #10b981; }
     .actions { display: flex; gap: 8px; justify-content: center; }
     .btn {
       display: inline-flex;
@@ -200,11 +209,11 @@ async function bootstrap() {
     }
     .btn:hover { background: #047857; }
     .btn-secondary {
-      background: #f5f5f4;
-      color: #44403c;
-      border: 1px solid #e7e5e4;
+      background: #252525;
+      color: #ebebeb;
+      border: 1px solid #2e2e2e;
     }
-    .btn-secondary:hover { background: #e7e5e4; }
+    .btn-secondary:hover { background: #2e2e2e; }
   </style>
 </head>
 <body>
@@ -235,10 +244,29 @@ async function bootstrap() {
 
   // 2. Root URL serves the OpenSourced Landing Page index.html
   if (landingFilePath) {
-    server.get('/', (_req: express.Request, res: express.Response) => {
+    server.get('/', (req: express.Request, res: express.Response) => {
+      // OAuth Provider Fallback: In case provider was configured with root callback URL, seamlessly forward to auth callback
+      if (req.query?.code) {
+        const queryIndex = req.url.indexOf('?');
+        const qs = queryIndex !== -1 ? req.url.slice(queryIndex) : '';
+        const isGoogle =
+          req.query.scope?.toString().includes('google') ||
+          req.query.state?.toString().includes('google');
+        const target = isGoogle ? '/api/auth/google/callback' : '/api/auth/github/callback';
+        return res.redirect(`${target}${qs}`);
+      }
       res.sendFile(landingFilePath);
     });
-    server.get('/index.html', (_req: express.Request, res: express.Response) => {
+    server.get('/index.html', (req: express.Request, res: express.Response) => {
+      if (req.query?.code) {
+        const queryIndex = req.url.indexOf('?');
+        const qs = queryIndex !== -1 ? req.url.slice(queryIndex) : '';
+        const isGoogle =
+          req.query.scope?.toString().includes('google') ||
+          req.query.state?.toString().includes('google');
+        const target = isGoogle ? '/api/auth/google/callback' : '/api/auth/github/callback';
+        return res.redirect(`${target}${qs}`);
+      }
       res.sendFile(landingFilePath);
     });
   }
@@ -253,7 +281,14 @@ async function bootstrap() {
 
   // 4. Any other non-API and non-extension path redirects to /404 (which redirects to / after 2s)
   server.get('*', (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/extension')) {
+    if (
+      req.path.startsWith('/api') ||
+      req.path.startsWith('/extension') ||
+      req.path.startsWith('/icons') ||
+      req.path.endsWith('.png') ||
+      req.path.endsWith('.ico') ||
+      req.path.endsWith('.svg')
+    ) {
       return next();
     }
     res.redirect('/404');

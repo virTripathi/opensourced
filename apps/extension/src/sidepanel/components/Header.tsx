@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { GitHubContext, UserProfile } from '@opensourced/common/types';
 import { ThemeMode } from '../../hooks/useTheme';
+import { EXTENSION_CONFIG } from '../../config/constants';
 
 interface HeaderProps {
   context: GitHubContext | null;
@@ -62,9 +63,16 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center justify-between">
         {/* Left: Clean Breadcrumbs & Status Indicator */}
         <div className="flex items-center space-x-2 min-w-0">
-          <div className="w-7 h-7 rounded-md bg-[#37352f] dark:bg-[#ebebeb] text-white dark:text-[#191919] flex items-center justify-center font-bold text-xs shadow-xs flex-shrink-0">
-            O
-          </div>
+          <img
+            src="/icons/icon-32.png"
+            alt="OpenSourced"
+            className="w-7 h-7 rounded-md shadow-xs flex-shrink-0 dark:hidden object-contain"
+          />
+          <img
+            src="/icons/icon-dark-32.png"
+            alt="OpenSourced"
+            className="w-7 h-7 rounded-md shadow-xs flex-shrink-0 hidden dark:block object-contain"
+          />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-[#37352f] dark:text-[#ebebeb] truncate">
               <span>OpenSourced</span>
@@ -118,11 +126,11 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center space-x-1.5 flex-shrink-0">
           {/* Swagger API Docs Link */}
           <a
-            href="/api/docs"
+            href={`${EXTENSION_CONFIG.apiBase}/api/docs`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#f7f7f5] dark:bg-[#202020] border border-[#e9e9e7] dark:border-[#2e2e2e] text-[11px] font-medium text-[#787774] dark:text-[#9b9a97] hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-300 dark:hover:border-emerald-800 transition-colors shadow-2xs"
-            title="Open Interactive Swagger API Documentation (/api/docs)"
+            title={`Backend Swagger Docs: ${EXTENSION_CONFIG.apiBase}/api/docs`}
           >
             <FileCode2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
             <span className="hidden sm:inline">Swagger API</span>

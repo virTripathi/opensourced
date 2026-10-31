@@ -1,10 +1,15 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenSourced — Split-Pane Repository & Feature Explorer</title>
   <meta name="description" content="Explore any GitHub repository in seconds without cloning. Split-pane browsing, interactive Mermaid diagrams, spoken audio walkthroughs, and synchronized tab navigation.">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-dark-32.png" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
+  <link rel="shortcut icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -111,11 +116,17 @@
     }
 
     .brand-icon {
-      width: 22px;
-      height: 22px;
-      color: var(--accent);
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
       flex-shrink: 0;
+      object-fit: contain;
     }
+
+    [data-theme="light"] .brand-icon-dark { display: none !important; }
+    [data-theme="light"] .brand-icon-light { display: inline-block !important; }
+    [data-theme="dark"] .brand-icon-light { display: none !important; }
+    [data-theme="dark"] .brand-icon-dark { display: inline-block !important; }
 
     .version-pill {
       font-family: var(--font-mono);
@@ -638,9 +649,8 @@
     <div class="container nav-inner">
       <div class="brand">
         <!-- Ambient Logo -->
-        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-        </svg>
+        <img src="/icons/icon-32.png" alt="OpenSourced Logo" class="brand-icon brand-icon-light" width="24" height="24">
+        <img src="/icons/icon-dark-32.png" alt="OpenSourced Logo" class="brand-icon brand-icon-dark" width="24" height="24">
         <span>OpenSourced</span>
         <span class="version-pill">v0.1.0</span>
       </div>
@@ -945,7 +955,7 @@
       function getPreferredTheme() {
         const stored = localStorage.getItem('opensourced_theme');
         if (stored === 'light' || stored === 'dark') return stored;
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        return 'dark'; // Default to dark mode
       }
 
       function applyTheme(theme) {

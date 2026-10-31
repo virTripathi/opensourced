@@ -14,6 +14,7 @@ export interface StructuredLogEntry {
     ip?: string;
     userId?: string;
     userAgent?: string;
+    origin?: string;
   };
   http?: {
     target?: string;
@@ -141,6 +142,7 @@ export class AppJsonLoggerService implements LoggerService, OnApplicationShutdow
     ip?: string;
     userId?: string;
     userAgent?: string;
+    origin?: string;
     body?: any;
     query?: any;
   }) {
@@ -152,6 +154,7 @@ export class AppJsonLoggerService implements LoggerService, OnApplicationShutdow
         ip: data.ip,
         userId: data.userId,
         userAgent: data.userAgent,
+        origin: data.origin,
       },
       http: {
         method: data.method,
