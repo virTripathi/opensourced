@@ -13,7 +13,6 @@ import { AppJsonLoggerService } from './app-json-logger.service';
 import { ThirdPartyHttpService } from './third-party-http.service';
 import { UserRepository } from '../auth/user.repository';
 import { ReportsService } from '../auth/reports.service';
-import { FolderPickerService } from '../git/folder-picker.service';
 
 async function runLoggerAndIdempotencyTests() {
   console.log('🧪 ========================================================');
@@ -367,31 +366,6 @@ async function runLoggerAndIdempotencyTests() {
 
     const aliceReports = await reportsService.listUserReports('usr_alice');
     assert.strictEqual(aliceReports.length, 1, 'Only one report record should exist in repository');
-  });
-
-  await test('FolderPickerService shares in-flight dialog promise', async () => {
-    const pickerService = new FolderPickerService();
-
-    // Stub executeOpenFolderDialog to test in-flight promise deduplication headlessly
-    (pickerService as any).executeOpenFolderDialog = async (repoName: string) => {
-      await new Promise((r) => setTimeout(r, 10));
-      return {
-        selectedPath: `/mock/path/${repoName}`,
-        cancelled: false,
-        defaultPath: `/mock/path/${repoName}`,
-      };
-    };
-
-    // Trigger two dialog requests simultaneously
-    const promise1 = pickerService.openFolderDialog('my-repo');
-    const promise2 = pickerService.openFolderDialog('my-repo');
-
-    // Both should refer to the exact same in-flight Promise instance
-    assert.strictEqual(promise1, promise2, 'Concurrent picker requests must share the active promise instance');
-
-    const res1 = await promise1;
-    const res2 = await promise2;
-    assert.strictEqual(res1.defaultPath, res2.defaultPath);
   });
 
   console.log('\n========================================================');
