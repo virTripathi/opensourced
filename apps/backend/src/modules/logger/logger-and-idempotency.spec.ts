@@ -352,9 +352,9 @@ async function runLoggerAndIdempotencyTests() {
     const reportsService = new ReportsService(userRepo);
 
     const dto = {
-      title: 'OWASP Security Audit',
+      title: 'Security Check',
       repo: 'calcom/cal.com',
-      action: 'owasp_check',
+      action: 'security_check',
       content: 'No major security vulnerabilities detected in target entrypoint.',
     };
 

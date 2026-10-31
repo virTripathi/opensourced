@@ -34,7 +34,7 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Save Generated Analysis / Research Report',
     description:
-      'Persists a research artifact (issue analysis, entrypoints, OWASP check, PR draft) strictly bound to the authenticated user ID. Prevents IDOR across users.',
+      'Persists a research artifact (issue analysis, entrypoints, security check, PR draft) strictly bound to the authenticated user ID. Prevents IDOR across users.',
   })
   @ApiBody({ type: CreateReportDto })
   @ApiResponse({ status: 201, description: 'Report successfully saved and associated with user' })

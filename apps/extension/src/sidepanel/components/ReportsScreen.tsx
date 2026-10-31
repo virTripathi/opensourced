@@ -34,7 +34,7 @@ export interface ReportsScreenProps {
   onBackToWorkspace: () => void;
   onSaveToDrive?: () => void;
   onDeleteReport?: (reportId: string) => void;
-  onRescan?: (actionType: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise') => void;
+  onRescan?: (actionType: 'scan_issue' | 'security_check' | 'draft_pr' | 'summarise') => void;
   driveUrl?: string | null;
   isDark?: boolean;
 }
@@ -171,7 +171,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
         return <Layers className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />;
       case 'scan_issue':
         return <Search className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />;
-      case 'owasp_check':
+      case 'security_check':
         return <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />;
       case 'draft_pr':
         return <FileCode2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />;
@@ -187,9 +187,9 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       case 'summarise':
         return 'Repo Architecture';
       case 'scan_issue':
-        return 'Entrypoints Scan';
-      case 'owasp_check':
-        return 'OWASP Security Audit';
+        return 'Repository & Entrypoints';
+      case 'security_check':
+        return 'Security Check';
       case 'draft_pr':
         return 'PR Description Draft';
       default:
@@ -317,7 +317,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                     className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium flex items-center gap-1.5 shadow-2xs transition-colors"
                   >
                     <Search className="w-3 h-3" />
-                    <span>Scan Entrypoints</span>
+                    <span>Scan Repository</span>
                   </button>
                   <button
                     onClick={() => onRescan('summarise')}

@@ -28,14 +28,14 @@ export interface IDatabaseStrategy {
   findUserByOAuth(provider: 'github' | 'google', providerId: string): Promise<User | undefined>;
   upsertUser(userPartial: Partial<User> & { id: string }): Promise<User>;
 
-  // Session & Instant Token Revocation (OWASP A07 Defense)
+  // Session & Instant Token Revocation (Security Defense)
   createSession(sessionId: string, userId: string, expiresAt: Date): Promise<UserSession>;
   findSessionById(sessionId: string): Promise<UserSession | undefined>;
   isSessionRevoked(sessionId: string): Promise<boolean>;
   revokeSession(sessionId: string): Promise<void>;
   revokeAllUserSessions(userId: string): Promise<void>;
 
-  // IDOR-Protected Report Management (OWASP A01 Defense)
+  // IDOR-Protected Report Management (Security Defense)
   createReport(
     userId: string,
     data: { title: string; repo: string; action: string; content: string }

@@ -36,7 +36,7 @@ export const ContextCard: React.FC<ContextCardProps> = ({ context }) => {
               No GitHub repository detected
             </h2>
             <p className="text-[11px] text-[#787774] dark:text-[#9b9a97] mt-1 leading-relaxed">
-              Navigate to any GitHub issue or open-source repository tab to automatically inspect architecture, find bug entrypoints, and clone locally.
+              Navigate to any GitHub issue or open-source repository tab to automatically inspect architecture, find bug entrypoints, and audit safety.
             </p>
           </div>
         </div>

@@ -6,16 +6,44 @@ import type { RepoSummaryOutput, FeatureSummaryOutput } from '@opensourced/commo
  */
 export function formatFeatureSummaryToMarkdown(
   feature: FeatureSummaryOutput | any,
-  repoContext?: { owner: string; repo: string; branch?: string }
+  repoContext?: { owner: string; repo: string; branch?: string; featureQuery?: string }
 ): string {
   if (!feature) return '';
 
   const branch = repoContext?.branch || 'main';
   const repoBaseUrl = repoContext ? `https://github.com/${repoContext.owner}/${repoContext.repo}/blob/${branch}` : null;
 
-  const featureName = feature.featureName || feature.feature_name || feature.name || feature.title || 'Implementation Details';
-  const summaryText = feature.summary || feature.feature_summary || feature.overview || feature.description || 'Feature implementation summary.';
-  const lifecycleText = feature.lifecycle ? `\n\n### Execution Lifecycle\n${feature.lifecycle}` : '';
+  const featureName =
+    feature.featureName ||
+    feature.feature_name ||
+    feature.featureTitle ||
+    feature.feature_title ||
+    feature.name ||
+    feature.title ||
+    feature.feature ||
+    (repoContext as any)?.featureQuery ||
+    'Feature Overview';
+
+  const rawSummary =
+    feature.summary ||
+    feature.featureSummary ||
+    feature.feature_summary ||
+    feature.overview ||
+    feature.description ||
+    '';
+
+  const rawLifecycle =
+    feature.lifecycle ||
+    feature.executionLifecycle ||
+    feature.execution_lifecycle ||
+    '';
+
+  const lifecycleText =
+    rawLifecycle && !rawSummary.includes(rawLifecycle)
+      ? `\n\n### Execution Lifecycle\n${rawLifecycle}`
+      : '';
+
+  const summaryText = rawSummary || (rawLifecycle ? '' : '*No summary provided by model for this feature.*');
 
   // Mermaid diagram: only render if valid and not a synthetic placeholder
   let rawDiagram = (feature.mermaidDiagram || feature.mermaid_diagram || feature.diagram || feature.architectureDiagram || '').trim();

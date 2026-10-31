@@ -55,7 +55,7 @@ export default function App() {
   // Completed Action Notification in Workspace
   const [completedNotification, setCompletedNotification] = useState<{
     message: string;
-    actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature';
+    actionKey: 'scan_issue' | 'security_check' | 'draft_pr' | 'summarise' | 'summarise_feature';
     reportId?: string;
   } | null>(null);
 
@@ -97,15 +97,6 @@ export default function App() {
   const [latestResult, setLatestResult] = useState<string>('');
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
 
-  // Git Clone state
-  const [clonePath, setClonePath] = useState(EXTENSION_CONFIG.defaultProjectsDir);
-  const [cloneProgress, setCloneProgress] = useState<number | null>(null);
-  const [cloneStatus, setCloneStatus] = useState<string>('');
-  const [cloneError, setCloneError] = useState<string | null>(null);
-  const [clonedTargetPath, setClonedTargetPath] = useState<string | null>(null);
-  const [vsCodeUri, setVsCodeUri] = useState<string | null>(null);
-  const cloneAbortControllerRef = useRef<AbortController | null>(null);
-
   // 1. Detect GitHub context from active tab on initial mount
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
@@ -115,7 +106,6 @@ export default function App() {
           const parsed = parseGitHubUrl(activeTab.url);
           if (parsed) {
             setContext(parsed);
-            setClonePath(`~/Projects/${parsed.repo}`);
 
             // Query rich DOM context from content script if tab is accessible
             if (activeTab.id) {
@@ -143,7 +133,6 @@ export default function App() {
             ...(prev || {}),
             ...msg.payload,
           }));
-          setClonePath(`~/Projects/${msg.payload.repo}`);
         }
       };
       chrome.runtime.onMessage.addListener(listener);
@@ -173,8 +162,8 @@ export default function App() {
 
   const reportsByAction = useMemo(() => {
     if (!contextRepoFullName) return {};
-    const map: Partial<Record<'scan_issue' | 'owasp_check' | 'draft_pr', { id: string; createdAt: string }>> = {};
-    (['scan_issue', 'owasp_check', 'draft_pr'] as const).forEach((actionKey) => {
+    const map: Partial<Record<'scan_issue' | 'security_check' | 'draft_pr', { id: string; createdAt: string }>> = {};
+    (['scan_issue', 'security_check', 'draft_pr'] as const).forEach((actionKey) => {
       const rep = getLatestReportForAction(contextRepoFullName, actionKey, context?.issueNumber);
       if (rep) {
         map[actionKey] = {
@@ -322,189 +311,9 @@ export default function App() {
     }
   };
 
-  // Native Folder Picker handler
-  const handleOpenFolderPicker = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/git/picker`, {
-        method: 'POST',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        credentials: 'include',
-        body: JSON.stringify({ repoName: context?.repo || 'my-project' }),
-      });
-      if (res.ok) {
-        setIsBackendOffline(false);
-        const data = await res.json();
-        if (data.selectedPath) {
-          setClonePath(data.selectedPath);
-          setStreamLogs((prev) => [...prev, `[PICKER] Selected path: ${data.selectedPath}`]);
-        }
-      } else {
-        if (res.status >= 500) setIsBackendOffline(true);
-        setActionError({
-          title: 'Server Error',
-          message: 'Backend server is unreachable. Please retry after some time.',
-        });
-      }
-    } catch {
-      setIsBackendOffline(true);
-      setActionError({
-        title: 'Server Error',
-        message: 'Backend server is unreachable. Please retry after some time.',
-      });
-      setClonePath(context ? `~/Projects/${context.repo}` : EXTENSION_CONFIG.defaultProjectsDir);
-    }
-  };
-
-  // Stop / Cancel active clone and delete partial files on disk
-  const handleCancelClone = async () => {
-    if (cloneAbortControllerRef.current) {
-      cloneAbortControllerRef.current.abort();
-      cloneAbortControllerRef.current = null;
-    }
-
-    if (!context) return;
-
-    try {
-      await fetch(`${API_BASE}/api/git/cancel`, {
-        method: 'POST',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        credentials: 'include',
-        body: JSON.stringify({
-          targetPath: clonePath,
-          repo: context.repo,
-          repoUrl: `https://github.com/${context.owner}/${context.repo}.git`,
-        }),
-      });
-    } catch (err: any) {
-      console.warn('Error sending clone cancellation to backend:', err.message);
-    }
-
-    setActiveAction(null);
-    setCloneProgress(null);
-    setCloneError(null);
-    setCloneStatus('Cloning stopped. Partial files deleted.');
-    setStreamLogs((prev) => [
-      ...prev,
-      `[GIT] Cloning stopped midway. Cleaned up target directory: ${clonePath}`,
-    ]);
-  };
-
-  // Git Clone execution
-  const handleExecuteClone = async () => {
-    if (!context) {
-      setActionError({
-        title: 'No Repository Detected',
-        message: 'Please navigate to a GitHub repository or issue tab to clone.',
-      });
-      return;
-    }
-
-    setActionError(null);
-    setActiveAction('clone');
-    setCloneProgress(5);
-    setCloneStatus('Initializing clone...');
-    setCloneError(null);
-    setClonedTargetPath(null);
-    setVsCodeUri(null);
-    setStreamLogs((prev) => [...prev, `[GIT] Starting clone for ${context.owner}/${context.repo}...`]);
-
-    const abortController = new AbortController();
-    cloneAbortControllerRef.current = abortController;
-
-    try {
-      const response = await fetch(`${API_BASE}/api/git/clone`, {
-        method: 'POST',
-        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        credentials: 'include',
-        signal: abortController.signal,
-        body: JSON.stringify({
-          repoUrl: `https://github.com/${context.owner}/${context.repo}.git`,
-          owner: context.owner,
-          repo: context.repo,
-          destinationPath: clonePath,
-        }),
-      });
-
-      setIsBackendOffline(false);
-
-      if (!response.ok) {
-        if (response.status >= 500) setIsBackendOffline(true);
-        setActionError({
-          title: 'Server Error',
-          message: 'Backend server is unreachable. Please retry after some time.',
-        });
-        setActiveAction(null);
-        return;
-      }
-
-      if (!response.body) {
-        setActiveAction(null);
-        return;
-      }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data:')) {
-            try {
-              const event: ServerSentEvent = JSON.parse(line.replace('data:', '').trim());
-              if (event.type === 'CLONE_PROGRESS') {
-                setCloneProgress(event.percent);
-                setCloneStatus(event.statusText);
-                setStreamLogs((prev) => [...prev, `[CLONE] ${event.statusText}`]);
-              } else if (event.type === 'CLONE_COMPLETE') {
-                setCloneProgress(100);
-                setCloneStatus('Clone Complete!');
-                setClonedTargetPath(event.targetPath);
-                setVsCodeUri(event.vsCodeUri);
-                setStreamLogs((prev) => [...prev, `[SUCCESS] Cloned into ${event.targetPath}`]);
-                setActiveAction(null);
-              } else if (event.type === 'CLONE_CANCELLED') {
-                setCloneProgress(null);
-                setCloneStatus(event.message || 'Clone cancelled. Partial files removed.');
-                setActiveAction(null);
-                setStreamLogs((prev) => [...prev, `[CANCELLED] ${event.message}`]);
-              } else if (event.type === 'PIPELINE_ERROR') {
-                if (event.code === 'REPO_NOT_FOUND') {
-                  setCloneError(event.message);
-                }
-                setCloneStatus(`Error: ${event.message}`);
-                setStreamLogs((prev) => [...prev, `[ERROR] ${event.message}`]);
-                setActiveAction(null);
-              }
-            } catch (parseErr: any) {
-              console.warn('[SSE Clone] Non-JSON stream chunk:', line, parseErr);
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        return;
-      }
-      setIsBackendOffline(true);
-      setActionError({
-        title: 'Server Error',
-        message: 'Backend server is unreachable. Please retry after some time.',
-      });
-      setCloneStatus(`Connection error: ${err.message}`);
-      setStreamLogs((prev) => [...prev, `[ERROR] Failed to connect: ${err.message}`]);
-      setActiveAction(null);
-    } finally {
-      cloneAbortControllerRef.current = null;
-    }
-  };
-
-  // Agent Actions (Scan, OWASP, Draft PR, Summaries) with Automatic Report Cache Persistence
+  // Agent Actions (Scan, Security, Draft PR, Summaries) with Automatic Report Cache Persistence
   const handleTriggerAction = async (
-    actionType: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature',
+    actionType: 'scan_issue' | 'security_check' | 'draft_pr' | 'summarise' | 'summarise_feature',
     customQuery?: string
   ) => {
     if (!context) {
@@ -548,7 +357,7 @@ export default function App() {
           if (errData.message && response.status < 500) {
             errorMsg = errData.message;
           }
-        } catch {}
+        } catch { }
         setActionError({
           title: 'Action Failed',
           message: errorMsg,
@@ -595,6 +404,7 @@ export default function App() {
                   owner: context.owner,
                   repo: context.repo,
                   branch: context.branch,
+                  featureQuery: customQuery || context.title,
                 });
                 accumulatedResult = md;
                 setLatestResult(md);
@@ -609,6 +419,7 @@ export default function App() {
                       owner: context.owner,
                       repo: context.repo,
                       branch: context.branch,
+                      featureQuery: customQuery || context.title,
                     });
                     setLatestResult(accumulatedResult);
                   } else if ((event.result as any).type === 'repo_summary') {
@@ -629,16 +440,20 @@ export default function App() {
                       : customQuery
                     : context.title || (context.issueNumber ? `Issue #${context.issueNumber}` : undefined);
 
-                  const reportTitle =
-                    actionType === 'summarise_feature'
-                      ? `Feature: ${promptSummary || 'Exploration'}`
-                      : actionType === 'summarise'
-                      ? `Architecture: ${context.repo}`
-                      : actionType === 'scan_issue'
-                      ? `Entrypoints: ${context.repo}${context.issueNumber ? ' #' + context.issueNumber : ''}`
-                      : actionType === 'owasp_check'
-                      ? `Safety & Hygiene: ${context.repo}`
-                      : `PR Draft: ${context.repo}`;
+                  const reportTitle = (() => {
+                    switch (actionType) {
+                      case 'summarise_feature':
+                        return `Feature: ${promptSummary || 'Exploration'}`;
+                      case 'summarise':
+                        return `Architecture: ${context.repo}`;
+                      case 'scan_issue':
+                        return `Entrypoints: ${context.repo}${context.issueNumber ? ` #${context.issueNumber}` : ''}`;
+                      case 'security_check':
+                        return `Security: ${context.repo}`;
+                      case 'draft_pr':
+                        return `PR Draft: ${context.repo}`;
+                    }
+                  })();
 
                   saveReport(
                     {
@@ -674,8 +489,8 @@ export default function App() {
                     event.code === 'RATE_LIMIT_EXCEEDED'
                       ? 'Rate Limit Reached'
                       : event.code === 'MODEL_SYNTAX_ERROR'
-                      ? 'Model Syntax Error'
-                      : 'Pipeline Error',
+                        ? 'Model Syntax Error'
+                        : 'Pipeline Error',
                   message: event.message || 'The pipeline encountered an error.',
                 });
                 setActiveAction(null);
@@ -752,7 +567,9 @@ export default function App() {
   };
 
   // Navigation Handler: View Report from Action Card or Notification
-  const handleViewReport = (actionKey: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature') => {
+  const handleViewReport = (
+    actionKey: 'scan_issue' | 'security_check' | 'draft_pr' | 'summarise' | 'summarise_feature'
+  ) => {
     if (contextRepoFullName) {
       // 1. If a report was specifically generated for a question or issue in this session, prioritize it
       if (lastGeneratedReportId) {
@@ -779,11 +596,9 @@ export default function App() {
   };
 
   const handleVoiceAction = (actionKey: string) => {
-    if (actionKey === 'clone') {
-      handleExecuteClone();
-    } else if (
+    if (
       actionKey === 'scan_issue' ||
-      actionKey === 'owasp_check' ||
+      actionKey === 'security_check' ||
       actionKey === 'draft_pr' ||
       actionKey === 'summarise'
     ) {
@@ -813,8 +628,8 @@ export default function App() {
       handleTriggerAction('summarise');
       return;
     }
-    if (lower.includes('safety') || lower.includes('security') || lower.includes('audit')) {
-      handleTriggerAction('owasp_check');
+    if (lower.includes('security') || lower.includes('safety') || lower.includes('audit')) {
+      handleTriggerAction('security_check');
       return;
     }
     if (lower.startsWith('pr ') || lower === 'pr' || lower.includes('pull request')) {
@@ -981,15 +796,6 @@ export default function App() {
       <ActionCards
         hasContext={Boolean(context)}
         activeAction={activeAction}
-        clonePath={clonePath}
-        cloneProgress={cloneProgress}
-        cloneStatus={cloneStatus}
-        vsCodeUri={vsCodeUri}
-        clonedTargetPath={clonedTargetPath}
-        cloneError={cloneError}
-        onOpenFolderPicker={handleOpenFolderPicker}
-        onExecuteClone={handleExecuteClone}
-        onCancelClone={handleCancelClone}
         onTriggerAction={handleTriggerAction}
         onSaveToDrive={handleSaveToDrive}
         onViewReport={handleViewReport}
@@ -1008,8 +814,8 @@ export default function App() {
                 {activeAction === 'summarise_feature'
                   ? 'Analyzing Feature...'
                   : activeAction === 'summarise'
-                  ? 'Analyzing Repository Architecture...'
-                  : 'Scanning Codebase...'}
+                    ? 'Analyzing Repository Architecture...'
+                    : 'Scanning Codebase...'}
               </div>
               <div className="text-[11px] text-[#787774] dark:text-[#9b9a97]">
                 Generating Mermaid sequence diagram & entrypoint mappings...

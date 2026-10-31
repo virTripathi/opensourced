@@ -19,47 +19,7 @@ export const GitHubContextSchema = z.object({
 export type GitHubContext = z.infer<typeof GitHubContextSchema>;
 
 // ============================================================================
-// 2. Git Clone Subsystem
-// ============================================================================
-
-export const CloneRequestSchema = z.object({
-  repoUrl: z.string().url(),
-  owner: z.string(),
-  repo: z.string(),
-  destinationPath: z.string().optional(),
-  autoOpenVsCode: z.boolean().default(true),
-});
-
-export type CloneRequest = z.infer<typeof CloneRequestSchema>;
-
-export const CloneProgressEventSchema = z.object({
-  type: z.literal('CLONE_PROGRESS'),
-  percent: z.number().min(0).max(100),
-  statusText: z.string(),
-  rawOutput: z.string().optional(),
-});
-
-export type CloneProgressEvent = z.infer<typeof CloneProgressEventSchema>;
-
-export const CloneResultSchema = z.object({
-  success: z.boolean(),
-  targetPath: z.string(),
-  vsCodeUri: z.string(),
-  message: z.string().optional(),
-});
-
-export type CloneResult = z.infer<typeof CloneResultSchema>;
-
-export const FolderPickerResponseSchema = z.object({
-  selectedPath: z.string().nullable(),
-  cancelled: z.boolean(),
-  defaultPath: z.string(),
-});
-
-export type FolderPickerResponse = z.infer<typeof FolderPickerResponseSchema>;
-
-// ============================================================================
-// 3. AST & Entrypoint Discovery
+// 2. AST & Entrypoint Discovery
 // ============================================================================
 
 export const SymbolTypeSchema = z.enum([
@@ -108,10 +68,10 @@ export const IssueAnalysisResultSchema = z.object({
 export type IssueAnalysisResult = z.infer<typeof IssueAnalysisResultSchema>;
 
 // ============================================================================
-// 4. OWASP Security Audit
+// 4. Security Check
 // ============================================================================
 
-export const OwaspSeveritySchema = z.enum([
+export const SecuritySeveritySchema = z.enum([
   'CRITICAL',
   'HIGH',
   'MEDIUM',
@@ -119,30 +79,31 @@ export const OwaspSeveritySchema = z.enum([
   'INFORMATIONAL',
 ]);
 
-export type OwaspSeverity = z.infer<typeof OwaspSeveritySchema>;
+export type SecuritySeverity = z.infer<typeof SecuritySeveritySchema>;
 
-export const OwaspSecurityFindingSchema = z.object({
-  owaspCategory: z.string(),
-  cweId: z.string(),
-  severity: OwaspSeveritySchema,
+export const SecurityFindingSchema = z.object({
+  category: z.string(),
+  cweId: z.string().optional(),
+  severity: SecuritySeveritySchema,
   targetFile: z.string(),
   affectedLines: z.string(),
   vulnerabilityDescription: z.string(),
   secureCodeRemediation: z.string(),
 });
 
-export type OwaspSecurityFinding = z.infer<typeof OwaspSecurityFindingSchema>;
+export type SecurityFinding = z.infer<typeof SecurityFindingSchema>;
 
 export const SecurityAuditReportSchema = z.object({
   issueNumber: z.number(),
   repo: z.string(),
   passed: z.boolean(),
   criticalCount: z.number().default(0),
-  findings: z.array(OwaspSecurityFindingSchema),
+  findings: z.array(SecurityFindingSchema),
   complianceNotes: z.string(),
 });
 
 export type SecurityAuditReport = z.infer<typeof SecurityAuditReportSchema>;
+
 
 // ============================================================================
 // 5. Automated PR Description Generation
@@ -171,9 +132,6 @@ export type ServerSentEvent =
   | { type: 'TOOL_CALL'; tool: string; params: Record<string, unknown> }
   | { type: 'TOOL_RESULT'; tool: string; summary: string }
   | { type: 'TOKEN_DELTA'; text: string }
-  | { type: 'CLONE_PROGRESS'; percent: number; statusText: string }
-  | { type: 'CLONE_COMPLETE'; targetPath: string; vsCodeUri: string }
-  | { type: 'CLONE_CANCELLED'; message: string; targetPath?: string }
   | { type: 'ENTRYPOINTS_FOUND'; result: IssueAnalysisResult }
   | { type: 'SECURITY_AUDIT_COMPLETE'; result: SecurityAuditReport }
   | { type: 'PR_DRAFT_COMPLETE'; result: PullRequestDraft }
@@ -185,13 +143,12 @@ export type ServerSentEvent =
   | { type: 'PIPELINE_ERROR'; message: string; recoverable: boolean; code?: string; canRetry?: boolean };
 
 // ============================================================================
-// 7. Wispr Flow Audio & Voice Commands
+// 6. Wispr Flow Audio & Voice Commands
 // ============================================================================
 
 export type AudioState = 'idle' | 'listening' | 'transcribing' | 'executed' | 'error';
 
 export type VoiceCommandIntent =
-  | 'CLONE_REPO'
   | 'SCAN_ISSUE'
   | 'AUDIT_SECURITY'
   | 'DRAFT_PR'

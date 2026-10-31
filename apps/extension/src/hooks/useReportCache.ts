@@ -13,7 +13,7 @@ export interface StoredReport {
   title: string;
   repo: string; // e.g. "facebook/react"
   issueNumber?: number;
-  action: 'scan_issue' | 'owasp_check' | 'draft_pr' | 'summarise' | 'summarise_feature' | string;
+  action: 'scan_issue' | 'security_check' | 'draft_pr' | 'summarise' | 'summarise_feature' | string;
   query?: string;
   content: string;
   streamLogs?: string[];

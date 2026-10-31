@@ -34,19 +34,3 @@ export function parseGitHubUrl(urlStr: string): GitHubContext | null {
     return null;
   }
 }
-
-/**
- * Builds the canonical git clone URL for an open source repository
- */
-export function buildGitHubCloneUrl(owner: string, repo: string): string {
-  // Strip trailing .git if already present to ensure consistency
-  const cleanRepo = repo.replace(/\.git$/, '');
-  return `https://github.com/${owner}/${cleanRepo}.git`;
-}
-
-/**
- * Generates a standard default target directory on the user's filesystem
- */
-export function getDefaultCloneDirectory(repoName: string): string {
-  return `~/Projects/${repoName}`;
-}

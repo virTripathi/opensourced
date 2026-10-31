@@ -17,7 +17,7 @@ Looking for the complete user-facing GitHub App description, feature walkthrough
 - **Zero-Copy Context:** Automatically reads GitHub issue and PR telemetry from the active browser tab.
 - **AST & Matrix Syntax Tree Precision:** Pinpoints exact files, line spans, and exported interfaces without LLM hallucinations.
 - **1-Click & Voice Git Clone:** Uses native OS folder dialogs to clone repositories and launches VS Code (`vscode://file/...`) with live SSE progress.
-- **OWASP Pre-Flight Audits:** Identifies security risks (Injection, Broken Access Control, SSRF) before any code is modified.
+- **Security Checks:** Identifies security risks (injections, credential leaks, unsafe scripts) before any code is modified.
 - **Wispr Flow "No Hands" Voice Integration:** Speech-triggered actions and real-time prompt dictation.
 - **Strategy Pattern AI Core:** Google Gemini 2.5 Flash with native function calling via HTTPS REST tools.
 

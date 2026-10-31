@@ -24,7 +24,7 @@ export const WisprVoiceBar: React.FC<WisprVoiceBarProps> = ({
 
   const quickSamples: Array<{ label: string; action?: string; query?: string }> = [
     { label: 'useState hook', query: 'useState hook' },
-    { label: 'Scan issue', action: 'scan_issue' },
+    { label: 'Scan repository', action: 'scan_issue' },
     { label: 'Summarise repo', action: 'summarise' },
   ];
 

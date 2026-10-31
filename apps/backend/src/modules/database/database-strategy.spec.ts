@@ -129,9 +129,9 @@ async function runDatabaseStrategyTests() {
   });
 
   // --------------------------------------------------------------------------
-  // Test 2: OWASP A02: Zero Plaintext Credential Storage at Rest
+  // Test 2: Security: Zero Plaintext Credential Storage at Rest
   // --------------------------------------------------------------------------
-  await test('OWASP A02: OAuth tokens and PAT are encrypted using AES-256-GCM in raw SQLite rows', async () => {
+  await test('Security: OAuth tokens and PAT are encrypted using AES-256-GCM in raw SQLite rows', async () => {
     const rawTokens: any[] = await prisma.$queryRawUnsafe(
       `SELECT "githubAccessToken", "pat" FROM "users" WHERE "id" = 'usr_reboot_test'`
     );
@@ -149,9 +149,9 @@ async function runDatabaseStrategyTests() {
   });
 
   // --------------------------------------------------------------------------
-  // Test 3: OWASP A07: Session Management & Instant Token Revocation (True Logout)
+  // Test 3: Security: Session Management & Instant Token Revocation (True Logout)
   // --------------------------------------------------------------------------
-  await test('OWASP A07: True Logout immediately invalidates stolen or kept JWTs', async () => {
+  await test('Security: True Logout immediately invalidates stolen or kept JWTs', async () => {
     const userRepo = new UserRepository(sqliteStrategy);
     const jwtStrategy = new JwtStrategy(configService, userRepo);
     const jwtService = new JwtService({ secret: 'test-jwt-secret-key-32charslong!!' });

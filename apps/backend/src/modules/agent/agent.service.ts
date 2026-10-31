@@ -19,9 +19,36 @@ import {
  * Defensive normalizer ensuring raw LLM outputs (whether camelCase or snake_case)
  * conform strictly to the FeatureSummaryOutput interface.
  */
-export function normalizeFeatureSummary(raw: any): FeatureSummaryOutput {
-  const featureName = raw?.featureName || raw?.feature_name || raw?.name || raw?.title || 'Target Feature';
-  const summary = raw?.summary || raw?.feature_summary || raw?.overview || raw?.description || '';
+export function normalizeFeatureSummary(raw: any, queryFallback?: string): FeatureSummaryOutput {
+  const featureName =
+    raw?.featureName ||
+    raw?.feature_name ||
+    raw?.featureTitle ||
+    raw?.feature_title ||
+    raw?.title ||
+    raw?.name ||
+    raw?.feature ||
+    queryFallback ||
+    'Feature Overview';
+
+  let summary =
+    raw?.summary ||
+    raw?.featureSummary ||
+    raw?.feature_summary ||
+    raw?.overview ||
+    raw?.description ||
+    '';
+
+  const lifecycle =
+    raw?.lifecycle ||
+    raw?.executionLifecycle ||
+    raw?.execution_lifecycle ||
+    raw?.execution_flow ||
+    '';
+
+  if (lifecycle && !summary.includes(lifecycle)) {
+    summary = summary ? `${summary}\n\n### Execution Lifecycle\n${lifecycle}` : `### Execution Lifecycle\n${lifecycle}`;
+  }
 
   const rawEntrypoints = Array.isArray(raw?.entrypoints)
     ? raw.entrypoints
@@ -289,8 +316,8 @@ export class AgentService {
               }
               break;
 
+            case 'security_check':
             case 'safety_check':
-            case 'owasp_check':
               systemInstruction =
                 'You are an expert open-source security and local hygiene auditor. Audit the repository for local developer execution safety: verify if package manifests contain dangerous or suspicious lifecycle scripts (curl pipes, obfuscated eval), check for exposed credentials, assess authentication boundaries, and verify safe local execution instructions.';
               prompt = context.issueNumber
@@ -737,8 +764,8 @@ Synthesize an authoritative technical report with code citations and a high-leve
             }
           }
 
-          // Apply defensive normalizer mapping snake_case -> camelCase
-          parsed = normalizeFeatureSummary(parsed);
+          // Apply defensive normalizer mapping snake_case -> camelCase with query fallback
+          parsed = normalizeFeatureSummary(parsed, featureQuery);
 
           const validated = this.groundingValidator.validateFeatureSummary(parsed, treePaths);
           this.summaryCache.set(cacheKey, validated);

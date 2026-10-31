@@ -39,7 +39,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('Invalid JWT payload: missing subject identifier');
     }
 
-    // OWASP A07: Verify session revocation status if session ID is attached
+    // Security Defense: Verify session revocation status if session ID is attached
     if (payload.sid) {
       const isRevoked = await this.userRepo.isSessionRevoked(payload.sid);
       if (isRevoked) {

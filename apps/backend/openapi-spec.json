@@ -443,7 +443,7 @@
       "post": {
         "operationId": "ReportsController_createReport",
         "summary": "Save Generated Analysis / Research Report",
-        "description": "Persists a research artifact (issue analysis, entrypoints, OWASP check, PR draft) strictly bound to the authenticated user ID. Prevents IDOR across users.",
+        "description": "Persists a research artifact (issue analysis, entrypoints, security check, PR draft) strictly bound to the authenticated user ID. Prevents IDOR across users.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1535,7 +1535,7 @@
           "action": {
             "type": "string",
             "example": "scan_issue",
-            "description": "Action that produced the report (e.g. scan_issue, summarise, owasp_check, draft_pr)"
+            "description": "Action that produced the report (e.g. scan_issue, summarise, security_check, draft_pr)"
           },
           "content": {
             "type": "string",

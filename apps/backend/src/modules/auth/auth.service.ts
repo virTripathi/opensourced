@@ -43,7 +43,7 @@ export class AuthService {
   }
 
   /**
-   * Revoke an active session (OWASP A07: Identification and Authentication Failures)
+   * Revoke an active session (Security: Identification and Authentication Failures)
    */
   async revokeSession(sessionId: string): Promise<void> {
     await this.userRepo.revokeSession(sessionId);

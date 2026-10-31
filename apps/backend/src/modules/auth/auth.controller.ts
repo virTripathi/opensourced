@@ -173,7 +173,7 @@ export class AuthController {
     const token = await this.authService.signToken(user);
     this.setAuthCookie(res, token);
 
-    // OWASP A01 / Anti-Open-Redirect: Strictly validate target redirect URL
+    // Security / Anti-Open-Redirect: Strictly validate target redirect URL
     const rawRedirect = stateQuery || redirectQuery;
     const target = this.validateSafeRedirectUrl(rawRedirect);
 
@@ -238,7 +238,7 @@ export class AuthController {
     const token = await this.authService.signToken(user);
     this.setAuthCookie(res, token);
 
-    // OWASP A01 / Anti-Open-Redirect: Safely extract redirect target from JSON state or query
+    // Security / Anti-Open-Redirect: Safely extract redirect target from JSON state or query
     let redirectUrl = redirectQuery;
     if (stateQuery) {
       try {
@@ -323,7 +323,7 @@ export class AuthController {
   }
 
   /**
-   * OWASP A01 Defense: Validates redirect targets to strictly whitelist
+   * Security Defense: Validates redirect targets to strictly whitelist
    * authorized Chrome Extension IDs, chromiumapp.org endpoints, and local developer hosts.
    */
   private validateSafeRedirectUrl(redirectUrl?: string): string {

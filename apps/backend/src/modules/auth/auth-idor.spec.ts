@@ -124,9 +124,9 @@ async function runAuthAndIdorTests() {
   });
 
   const aliceReport2 = await reportsService.createReport(aliceSession.user.id, {
-    title: 'Supabase OWASP Pre-Flight Check',
+    title: 'Supabase Security Check',
     repo: 'supabase/supabase',
-    action: 'owasp_check',
+    action: 'security_check',
     content: 'Security rating: SECURE. No SSRF or Injection found.',
   });
 
@@ -236,9 +236,9 @@ async function runAuthAndIdorTests() {
   });
 
   // --------------------------------------------------------------------------
-  // Test 13: OWASP A01 / Anti-Open-Redirect Defense
+  // Test 13: Security / Anti-Open-Redirect Defense
   // --------------------------------------------------------------------------
-  await test('🚨 OWASP A01 DEFENSE: Open redirect attempts are blocked and normalized to safe origins', () => {
+  await test('🚨 SECURITY DEFENSE: Open redirect attempts are blocked and normalized to safe origins', () => {
     const authController = new (require('./auth.controller').AuthController)(authService, configService);
     const validate = (url: string) => (authController as any).validateSafeRedirectUrl(url);
 
@@ -266,68 +266,9 @@ async function runAuthAndIdorTests() {
   });
 
   // --------------------------------------------------------------------------
-  // Test 14: OWASP A03 / Git Option Injection Defense
+  // Test 14: Security / Git Option Injection Defense
   // --------------------------------------------------------------------------
-  await test('🚨 OWASP A03 DEFENSE: Git clone rejects malicious option flag URLs', () => {
-    return new Promise<void>((resolve, reject) => {
-      const gitService = new (require('../git/git.service').GitService)();
-
-      gitService
-        .cloneRepository({
-          repoUrl: '--upload-pack=malicious_cmd',
-          owner: 'attacker',
-          repo: 'pwn',
-          autoOpenVsCode: false,
-        })
-        .subscribe((event: any) => {
-          if (event.type === 'PIPELINE_ERROR') {
-            try {
-              assert.ok(
-                event.message.includes('Invalid or unsafe repository URL'),
-                'Must block URLs starting with -'
-              );
-              resolve();
-            } catch (e) {
-              reject(e);
-            }
-          }
-        });
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // Test 15: OWASP A01 / Path Traversal Defense
-  // --------------------------------------------------------------------------
-  await test('🚨 OWASP A01 DEFENSE: Git clone blocks destination path traversal into system directories', () => {
-    return new Promise<void>((resolve, reject) => {
-      const gitService = new (require('../git/git.service').GitService)();
-
-      gitService
-        .cloneRepository({
-          repoUrl: 'https://github.com/calcom/cal.com.git',
-          owner: 'calcom',
-          repo: 'cal.com',
-          destinationPath: '/etc',
-          autoOpenVsCode: false,
-        })
-        .subscribe((event: any) => {
-          if (event.type === 'PIPELINE_ERROR') {
-            try {
-              assert.ok(
-                event.message.includes('restricted system path'),
-                'Must block cloning into /etc'
-              );
-              resolve();
-            } catch (e) {
-              reject(e);
-            }
-          }
-        });
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // Test 16: GitHub App Token Lifecycle & Persistence
+  // Test 14: GitHub App Token Lifecycle & Persistence
   // --------------------------------------------------------------------------
   await test('GitHub App token lifecycle: stores short-lived access token, refresh token & metadata', async () => {
     const expiresAt = new Date(Date.now() + 28800 * 1000); // 8 hours

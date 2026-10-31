@@ -63,7 +63,7 @@ async function bootstrap() {
     .setDescription(
       'Complete OpenAPI specification for OpenSourced backend intelligence engine. ' +
         'Includes repository & feature summarisation, universal multi-language architecture analysis, ' +
-        'credential leak guardrails, Git workspace bridging, and Google Drive artifact export. ' +
+        'credential leak guardrails, and Google Drive artifact export. ' +
         'Import directly into Postman via http://localhost:' +
         port +
         '/api/docs-json or using the exported openapi-spec.json.'
@@ -88,7 +88,6 @@ async function bootstrap() {
       'Repository & Feature Intelligence',
       'High-velocity repository architecture summarisation, entrypoint discovery, and feature tracing'
     )
-    .addTag('Local Git & Workspace Engine', 'Native desktop directory picker bridge and streaming git clone')
     .addTag('Google Drive Export', 'Exports session research artifacts directly into Google Drive (drive.file scope)')
     .addTag('Authentication & Session', 'GitHub and Google OAuth2 user session and token verification')
     .addTag(

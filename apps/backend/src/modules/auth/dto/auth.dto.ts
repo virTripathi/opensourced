@@ -45,7 +45,7 @@ export class CreateReportDto {
 
   @ApiProperty({
     example: 'scan_issue',
-    description: 'Action that produced the report (e.g. scan_issue, summarise, owasp_check, draft_pr)',
+    description: 'Action that produced the report (e.g. scan_issue, summarise, security_check, draft_pr)',
   })
   action!: string;
 

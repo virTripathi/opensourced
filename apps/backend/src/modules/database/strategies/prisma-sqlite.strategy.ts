@@ -77,7 +77,7 @@ export class PrismaSqliteStrategy implements IDatabaseStrategy {
     const username = userPartial.username || existing?.username || `user-${userPartial.id.slice(0, 8)}`;
     const roles = userPartial.roles || (existing ? JSON.parse(existing.roles) : ['user']);
 
-    // OWASP A02: Encrypt sensitive tokens before writing to disk
+    // Security Defense: Encrypt sensitive tokens before writing to disk
     const encGithubToken = userPartial.githubAccessToken !== undefined
       ? this.cryptor.encrypt(userPartial.githubAccessToken)
       : existing?.githubAccessToken;
@@ -141,7 +141,7 @@ export class PrismaSqliteStrategy implements IDatabaseStrategy {
   }
 
   // ============================================================================
-  // Session & Instant Token Revocation (OWASP A07 Defense)
+  // Session & Instant Token Revocation (Security Defense)
   // ============================================================================
 
   async createSession(sessionId: string, userId: string, expiresAt: Date): Promise<UserSession> {
@@ -211,7 +211,7 @@ export class PrismaSqliteStrategy implements IDatabaseStrategy {
   }
 
   // ============================================================================
-  // IDOR-Protected Report Management (OWASP A01 Defense)
+  // IDOR-Protected Report Management (Security Defense)
   // ============================================================================
 
   async createReport(

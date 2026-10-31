@@ -343,7 +343,7 @@ export const OutputViewer: React.FC<OutputViewerProps> = ({
             ) : (
               streamLogs.map((log, index) => {
                 let badgeClass = 'text-[#787774] dark:text-[#9b9a97]';
-                if (log.includes('[SUCCESS]') || log.includes('[CLONE COMPLETE]')) {
+                if (log.includes('[SUCCESS]')) {
                   badgeClass = 'text-emerald-600 dark:text-emerald-400 font-semibold';
                 } else if (log.includes('[ERROR]')) {
                   badgeClass = 'text-rose-600 dark:text-rose-400 font-semibold';

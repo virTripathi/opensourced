@@ -72,7 +72,7 @@ export class MemoryDatabaseStrategy implements IDatabaseStrategy {
   }
 
   // ============================================================================
-  // Session & Instant Token Revocation (OWASP A07 Defense)
+  // Session & Instant Token Revocation (Security Defense)
   // ============================================================================
 
   async createSession(sessionId: string, userId: string, expiresAt: Date): Promise<UserSession> {
@@ -120,7 +120,7 @@ export class MemoryDatabaseStrategy implements IDatabaseStrategy {
   }
 
   // ============================================================================
-  // IDOR-Protected Report Management (OWASP A01 Defense)
+  // IDOR-Protected Report Management (Security Defense)
   // ============================================================================
 
   async createReport(
